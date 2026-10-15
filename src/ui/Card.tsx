@@ -1,16 +1,19 @@
 import { CATEGORY_META } from '../data/cards';
-import type { CardDef } from '../engine/types';
+import type { CardDef, Category } from '../engine/types';
+import { Art, CatIcon } from './Icon';
 
 interface Props {
   def?: CardDef | null;
-  size?: 'xs' | 'sm' | 'md' | 'lg';
+  /** face-down; `backCat` shows the category symbol on the back, `backRarity` tints the glow */
   back?: boolean;
+  backCat?: Category;
+  backRarity?: number;
   onClick?: () => void;
   selected?: boolean;
   dim?: boolean;
-  value?: number; // override display value (field value)
+  value?: number;
   badge?: string;
-  flags?: { halved?: boolean; doubled?: boolean; stolen?: boolean; fresh?: boolean; thinking?: boolean };
+  flags?: { halved?: boolean; doubled?: boolean; stolen?: boolean; fresh?: boolean; thinking?: boolean; flipped?: boolean; scene?: boolean };
   style?: React.CSSProperties;
   className?: string;
 }
@@ -24,7 +27,7 @@ export function effectLabel(def: CardDef): string | null {
     case 'hitOpp':
       return `−${e.amount} them`;
     case 'fieldShake':
-      return `−${e.amount} all`;
+      return `−${e.amount} table`;
     case 'halveOppTop':
       return 'halve best';
     case 'doubleLast':
@@ -42,36 +45,55 @@ export function modLabel(def: CardDef): string | null {
   return parts.length ? parts.join(' · ') : 'neutral';
 }
 
-export function Card({ def, size = 'md', back, onClick, selected, dim, value, badge, flags, style, className }: Props) {
-  const cls = ['card', size !== 'md' ? size : '', onClick ? 'tappable' : '', selected ? 'selected' : '', dim ? 'dim' : '', className ?? ''];
-  if (back || !def) {
-    cls.push('back');
-    if (flags?.thinking) cls.push('thinking');
-    return (
-      <div className={cls.join(' ')} style={style} onClick={onClick}>
-        <span className="logo-mini">P</span>
-      </div>
-    );
-  }
-  const meta = CATEGORY_META[def.cat];
-  cls.push(`r${def.rarity}`);
-  if (def.cat === 'special') cls.push('special');
+/**
+ * A card. Rendered as a 3D flipper so the same element can show its back
+ * (category symbol, tier glow) and flip to its face.
+ */
+export function Card({ def, back, backCat, backRarity, onClick, selected, dim, value, badge, flags, style, className }: Props) {
+  const cat = def?.cat ?? backCat ?? 'special';
+  const meta = CATEGORY_META[cat];
+  const rarity = def?.rarity ?? backRarity ?? 1;
+  const cls = ['card', `r${rarity}`, onClick ? 'tappable' : '', selected ? 'selected' : '', dim ? 'dim' : '', back ? 'is-back' : '', className ?? ''];
   if (flags?.halved) cls.push('halved');
   if (flags?.doubled) cls.push('doubled');
   if (flags?.stolen) cls.push('stolen');
   if (flags?.fresh) cls.push('fresh');
-  const shown = value ?? def.rating;
-  const valCls = value !== undefined && value !== def.rating ? (value > def.rating ? 'val boost' : 'val hurt') : 'val';
-  const fx = badge ?? (def.cat === 'happenings' ? effectLabel(def) : def.cat === 'places' ? modLabel(def) : def.ability ? '★ ability' : null);
+  if (flags?.thinking) cls.push('thinking');
+  if (flags?.flipped) cls.push('just-flipped');
+  if (flags?.scene) cls.push('scene');
+  if (cat === 'special') cls.push('special');
+  const shown = def ? (value ?? def.rating) : 0;
+  const valCls = def && value !== undefined && value !== def.rating ? (value > def.rating ? 'val boost' : 'val hurt') : 'val';
+  const fx = def ? (badge ?? (def.cat === 'happenings' ? effectLabel(def) : def.cat === 'places' ? modLabel(def) : def.ability ? 'ability' : null)) : null;
   return (
     <div className={cls.join(' ')} style={{ ...style, ['--hue' as string]: meta.hue }} onClick={onClick} role={onClick ? 'button' : undefined}>
-      <div className="art">
-        <span className="cat">{meta.short}</span>
-        {def.cat !== 'special' && <span className={valCls}>{shown}</span>}
-        <span className="glyph">{def.emoji}</span>
-        {fx && <span className="fx">{fx}</span>}
+      <div className="flipper">
+        <div className="face back">
+          <div className="holo" />
+          <div className="sigil">
+            <CatIcon cat={cat} />
+          </div>
+          <div className="ring" />
+        </div>
+        {def && (
+          <div className="face front">
+            <div className="art">
+              <div className="glowart">
+                <Art id={def.id} className="ico shadow" />
+                <Art id={def.id} className="ico main" />
+              </div>
+              <span className="cat">
+                <CatIcon cat={cat} /> {meta.short}
+              </span>
+              {cat !== 'special' && <span className={valCls}>{shown}</span>}
+              {fx && <span className="fx">{fx}</span>}
+            </div>
+            <div className="name">
+              <span>{def.name}</span>
+            </div>
+          </div>
+        )}
       </div>
-      <div className="name">{def.name}</div>
     </div>
   );
 }

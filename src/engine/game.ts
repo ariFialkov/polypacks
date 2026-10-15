@@ -30,7 +30,7 @@ export interface GameState {
   phase: Phase;
   roundIndex: number;
   you: { money: number; roundsWon: number };
-  bot: { money: number; roundsWon: number; name: string; avatar: string };
+  bot: { money: number; roundsWon: number; name: string };
   stake: number;
   spent: number;
   history: RoundSummary[];
@@ -90,7 +90,7 @@ export function newGame(mode: Mode, seed: number): GameState {
     phase: mode === 'solitaire' ? 'shop' : 'draft',
     roundIndex: 0,
     you: { money: stake, roundsWon: 0 },
-    bot: { money: stake, roundsWon: 0, name: bot.name, avatar: bot.avatar },
+    bot: { money: stake, roundsWon: 0, name: bot.name },
     stake,
     spent: 0,
     history: [],

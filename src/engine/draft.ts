@@ -49,7 +49,7 @@ export const PACK_INFO: Record<PackKind, { label: string; desc: string }> = {
   basic: { label: 'Basic', desc: '5 cards, any category' },
   enhanced: { label: 'Enhanced', desc: '3 cards, better odds' },
   baptized: { label: 'Baptized', desc: '1 blessed card from a category you choose' },
-  category: { label: 'Utility', desc: '3 cards from one category' },
+  category: { label: 'Utility', desc: '2 cards from one category' },
   mystery: { label: '???', desc: '1 card from beyond' },
   redemption: { label: 'Redemption', desc: '2 cards, opens last' },
 };
@@ -110,14 +110,12 @@ export class Draft {
     for (let i = 0; i < lo.enhanced; i++) add('enhanced', 3);
     for (let i = 0; i < lo.baptized; i++) add('baptized', 1);
     for (let i = 0; i < lo.utility; i++) {
-      const roll = this.rng.next();
-      if (roll < 0.6) {
+      if (this.rng.chance(0.2)) add('redemption', 2, { locked: true });
+      else {
         const cat = this.rng.pick(MAIN_CATEGORIES) as MainCategory;
-        add('category', 3, { category: cat, label: `${cat[0].toUpperCase()}${cat.slice(1)} pack` });
-      } else if (roll < 0.85) add('mystery', 1);
-      else add('redemption', 2, { locked: true });
+        add('category', 2, { category: cat, label: `${cat[0].toUpperCase()}${cat.slice(1)}` });
+      }
     }
-    this.state.packs = this.rng.shuffle(this.state.packs);
     this.refreshLocks();
   }
 
@@ -167,7 +165,12 @@ export class Draft {
     const out: CardDef[] = [];
     const rw = rarityWeight(this.weightsFor(pack), this.state.luck);
     const pool = CARDS.filter((c) => c.cat !== 'special' && !owned.has(c.id));
-    for (let i = 0; i < size; i++) {
+    const specialChance = pack.kind === 'basic' ? 0.04 : pack.kind === 'enhanced' ? 0.12 : 0;
+    if (specialChance > 0 && this.rng.chance(specialChance + Math.max(0, this.state.luck) * 0.05)) {
+      const specials = cardsOf('special');
+      out.push(this.rng.weighted(specials, (c) => SPECIAL_WEIGHTS[c.id] ?? 10));
+    }
+    for (let i = out.length; i < size; i++) {
       let cat: Category;
       if (pack.category) cat = pack.category;
       else cat = this.rng.weighted(MAIN_CATEGORIES as MainCategory[], (c) => CATEGORY_WEIGHTS[c]);

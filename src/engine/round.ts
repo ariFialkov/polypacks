@@ -70,6 +70,10 @@ export function sideScore(s: SideState): number {
   return Math.max(0, total - s.penalty);
 }
 
+function verb(s: SideState, v: string): string {
+  return s.name === 'You' ? v : `${v}s`;
+}
+
 export function other(side: Side): Side {
   return side === 'you' ? 'bot' : 'you';
 }
@@ -88,7 +92,7 @@ export function createRound(you: Omit<SideState, 'field' | 'penalty' | 'swappedP
   const state: RoundState = { you: mk(you), bot: mk(bot), turn: 'you', events: [], done: false, turnNo: 0 };
   for (const side of ['you', 'bot'] as Side[]) {
     const s = sideOf(state, side);
-    if (s.place) push(state, { side, kind: 'flip', text: `${s.name} sets the scene: ${s.place.def.name}.`, cardUid: s.place.uid });
+    if (s.place) push(state, { side, kind: 'flip', text: `${s.name} ${verb(s, 'set')} the scene: ${s.place.def.name}.`, cardUid: s.place.uid });
     else push(state, { side, kind: 'flip', text: `${s.name} has no place card.` });
   }
   return state;
@@ -111,7 +115,7 @@ export function swapPlace(state: RoundState, side: Side): RoundState {
   s.place = s.altPlace;
   s.altPlace = old;
   s.swappedPlace = true;
-  push(st, { side, kind: 'swapPlace', text: `${s.name} moves the scene to ${s.place.def.name}.`, cardUid: s.place.uid });
+  push(st, { side, kind: 'swapPlace', text: `${s.name} ${verb(s, 'move')} the scene to ${s.place.def.name}.`, cardUid: s.place.uid });
   return st;
 }
 
@@ -135,27 +139,27 @@ export function playCard(state: RoundState, side: Side, uid: string): RoundState
       case 'boostSelf': {
         fc.delta = Math.round(e.amount * mult);
         s.field.push(fc);
-        push(st, { side, kind: 'play', text: `${s.name} plays ${card.def.name} (+${fc.delta}).`, cardUid: card.uid });
+        push(st, { side, kind: 'play', text: `${s.name} ${verb(s, 'play')} ${card.def.name} (+${fc.delta}).`, cardUid: card.uid });
         break;
       }
       case 'hitOpp': {
         const dmg = Math.round(e.amount * mult);
         o.penalty += dmg;
         s.field.push(fc);
-        push(st, { side, kind: 'play', text: `${s.name} plays ${card.def.name}.`, cardUid: card.uid });
-        push(st, { side, kind: 'effect', text: `${o.name} takes -${dmg}.`, targetSide: other(side) });
+        push(st, { side, kind: 'play', text: `${s.name} ${verb(s, 'play')} ${card.def.name}.`, cardUid: card.uid });
+        push(st, { side, kind: 'effect', text: `${o.name} ${verb(o, 'take')} -${dmg}.`, targetSide: other(side) });
         break;
       }
       case 'fieldShake': {
         const dmg = Math.round(e.amount * mult);
         for (const f of [...s.field, ...o.field]) f.delta -= dmg;
         s.field.push(fc);
-        push(st, { side, kind: 'play', text: `${s.name} plays ${card.def.name}. Every card on the table takes -${dmg}.`, cardUid: card.uid });
+        push(st, { side, kind: 'play', text: `${s.name} ${verb(s, 'play')} ${card.def.name}. Every card on the table takes -${dmg}.`, cardUid: card.uid });
         break;
       }
       case 'halveOppTop': {
         s.field.push(fc);
-        push(st, { side, kind: 'play', text: `${s.name} plays ${card.def.name}.`, cardUid: card.uid });
+        push(st, { side, kind: 'play', text: `${s.name} ${verb(s, 'play')} ${card.def.name}.`, cardUid: card.uid });
         const top = topCard(o);
         if (top) {
           top.halved = true;
@@ -166,7 +170,7 @@ export function playCard(state: RoundState, side: Side, uid: string): RoundState
       case 'doubleLast': {
         const last = [...s.field].reverse().find((f) => f.inst.def.cat !== 'happenings' && !f.doubled);
         s.field.push(fc);
-        push(st, { side, kind: 'play', text: `${s.name} plays ${card.def.name}.`, cardUid: card.uid });
+        push(st, { side, kind: 'play', text: `${s.name} ${verb(s, 'play')} ${card.def.name}.`, cardUid: card.uid });
         if (last) {
           last.doubled = true;
           push(st, { side, kind: 'effect', text: `${last.inst.def.name} is doubled.`, targetSide: side, targetUid: last.inst.uid });
@@ -175,24 +179,24 @@ export function playCard(state: RoundState, side: Side, uid: string): RoundState
       }
       case 'steal': {
         s.field.push(fc);
-        push(st, { side, kind: 'play', text: `${s.name} plays ${card.def.name}.`, cardUid: card.uid });
+        push(st, { side, kind: 'play', text: `${s.name} ${verb(s, 'play')} ${card.def.name}.`, cardUid: card.uid });
         const low = lowestCard(o);
         if (low) {
           o.field.splice(o.field.indexOf(low), 1);
           low.stolen = true;
           s.field.push(low);
-          push(st, { side, kind: 'effect', text: `${s.name} takes ${low.inst.def.name} from ${o.name}.`, targetSide: other(side), targetUid: low.inst.uid });
+          push(st, { side, kind: 'effect', text: `${s.name} ${verb(s, 'take')} ${low.inst.def.name} from ${o.name}.`, targetSide: other(side), targetUid: low.inst.uid });
         } else push(st, { side, kind: 'effect', text: 'Nothing to take yet.' });
         break;
       }
     }
   } else {
     s.field.push(fc);
-    push(st, { side, kind: 'play', text: `${s.name} plays ${card.def.name} (${cardValue(fc, s.place)}).`, cardUid: card.uid });
+    push(st, { side, kind: 'play', text: `${s.name} ${verb(s, 'play')} ${card.def.name} (${cardValue(fc, s.place)}).`, cardUid: card.uid });
   }
 
   const after = sideCombos(s);
-  for (const c of after) if (!before.includes(c.id)) push(st, { side, kind: 'combo', text: `${s.name} completes ${c.name}! +${c.bonus}` });
+  for (const c of after) if (!before.includes(c.id)) push(st, { side, kind: 'combo', text: `${s.name} ${verb(s, 'complete')} ${c.name}! +${c.bonus}` });
 
   st.turnNo++;
   advance(st);

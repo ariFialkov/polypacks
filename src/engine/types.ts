@@ -37,7 +37,6 @@ export interface CardDef {
   cat: Category;
   rating: number; // base value in $k
   rarity: Rarity;
-  emoji: string;
   blurb?: string;
   effect?: HappeningEffect;
   mods?: PlaceMods;

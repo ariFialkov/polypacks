@@ -14,10 +14,9 @@ const BOT_NAMES = [
   'lil_timeshare', 'jetski_jerry', 'post_nut_pete', 'mall_cop_mike', 'bees_bees_bees', 'uncle_bitcoin', 'queen_karen', 'trawler_tina',
   'peasant_paul', 'nepo_nate', 'dmv_survivor', 'pope_enjoyer', 'raccoon_rick', 'waffle_witch', 'crab_dad', 'tube_man_tony',
 ];
-const BOT_AVATARS = ['🦝', '🐊', '🦫', '🧟', '🤠', '🦈', '🐻', '🦀', '🎅', '🛵', '🦚', '🐌', '👽', '🤖', '🐭', '🧙'];
 
-export function botIdentity(rng: Rng): { name: string; avatar: string } {
-  return { name: rng.pick(BOT_NAMES), avatar: rng.pick(BOT_AVATARS) };
+export function botIdentity(rng: Rng): { name: string } {
+  return { name: rng.pick(BOT_NAMES) };
 }
 
 export const FLEX_CATS: MainCategory[] = ['life', 'stuff', 'ideas'];
@@ -36,7 +35,7 @@ export function buildBotSide(rng: Rng, you: SideState, name: string, excludeIds:
 }
 
 function placeholder(cat: MainCategory): CardDef {
-  return { id: `?${cat}`, name: '???', cat, rating: 0, rarity: 1, emoji: '❔' };
+  return { id: `?${cat}`, name: '???', cat, rating: 0, rarity: 1 };
 }
 
 function usedIds(state: RoundState): Set<string> {

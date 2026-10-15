@@ -30,8 +30,16 @@ src/engine/deck.ts    slot rules and the auto-builder (best subset + bipartite s
 src/engine/round.ts   the turn-based round: scenes, field values, happenings, combos, scoring
 src/engine/bot.ts     the opponent: concealed hand, steering toward the fated result
 src/engine/game.ts    modes, fate generation, money settlement
-src/ui/*              React screens: home, shop, draft, deck, play, results
+src/data/art.ts       card id → illustration (Game Icons via react-icons; generated, every card covered)
+src/ui/Home.tsx       pack carousel, tap-anywhere, mode menu, wallet, sound, rules
+src/ui/Table.tsx      the whole match on one table: deal, packs on the horizon, slot grid, mirrored
+                      opponent, fan-out pack opening (tap or auto reveal), ??? burst, play, results
+src/ui/Card.tsx       3D flipping card: neon face with glow art, back with category sigil + tier glow
+src/ui/sound.ts       WebAudio synth for taps, flips, tears, rares, wins
 ```
+
+Card illustrations are from [Game Icons](https://game-icons.net) (CC BY 3.0), rendered as neon
+sprites. Display font is Rajdhani (OFL) bundled through `@fontsource`.
 
 ### Simulated multiplayer and the fate
 
