@@ -295,7 +295,7 @@ function YouSlot({ slot, i, round, inPlay, sel, yourTurn, onTap }: { slot: DeckS
   return (
     <div className={`slot s-${id}`} style={{ ['--i' as string]: i }}>
       {content}
-      <span className="slotlabel">{slot.slot.special ? '★ ' : ''}{SLOT_LABEL[id]}</span>
+      <span className="slotlabel">{slot.slot.special ? 'SP · ' : ''}{SLOT_LABEL[id]}</span>
     </div>
   );
 }
@@ -479,7 +479,7 @@ function SwapSheet({ deck, slotId, onClose }: { deck: Deck; slotId: string; onCl
       <div className="sheet" onClick={(e) => e.stopPropagation()}>
         <div className="row spread">
           <h2>{SLOT_LABEL[slotId]} slot</h2>
-          <button className="hudbtn" onClick={onClose}>✕</button>
+          <button className="hudbtn" onClick={onClose}>×</button>
         </div>
         {slot.card && (
           <div className="row" style={{ gap: 14 }}>
