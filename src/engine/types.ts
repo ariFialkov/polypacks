@@ -1,6 +1,6 @@
 export type Category = 'life' | 'stuff' | 'places' | 'ideas' | 'happenings' | 'special';
 export type MainCategory = Exclude<Category, 'special'>;
-export type Rarity = 1 | 2 | 3 | 4; // common, uncommon, rare, legendary
+export type Rarity = 1 | 2 | 3 | 4 | 5 | 6; // common, uncommon, rare, epic, legendary, mythic (by prowess)
 
 /** Effects a happenings card triggers when played. */
 export type HappeningEffect =

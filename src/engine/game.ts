@@ -125,7 +125,7 @@ export function startRound(game: GameState, deck: Deck): RoundState {
   const rng = new Rng((game.seed + game.roundIndex * 104729 + 7) >>> 0);
   const you = youSide(deck);
   const exclude = new Set(deckCards(deck).map((c) => c.def.id));
-  const bot = buildBotSide(rng, { ...you, field: [], penalty: 0, swappedPlace: false }, game.bot.name, exclude);
+  const bot = buildBotSide(rng, { ...you, field: [], penalty: 0, swappedPlace: false }, game.bot.name, exclude, roundFate(game), deck.potential);
   return createRound(you, bot);
 }
 

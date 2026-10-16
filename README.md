@@ -41,6 +41,13 @@ src/ui/sound.ts       WebAudio synth for taps, flips, tears, rares, wins
 Card illustrations are from [Game Icons](https://game-icons.net) (CC BY 3.0), rendered as neon
 sprites. Display font is Rajdhani (OFL) bundled through `@fontsource`.
 
+### Tiers
+
+Every card is scored on a 40–99 scale. Its tier is about prowess only (rating plus what its
+effect, scene modifier or ability is worth), never its category: common (green, ≤56),
+uncommon (orange, ≤69), rare (pink, ≤78), epic (purple, ≤86), legendary (red, ≤93),
+mythic (teal, 94+). Both faces of a card glow with its tier colour; pack odds are keyed to tiers.
+
 ### Simulated multiplayer and the fate
 
 Every game seals its result before the first pack is opened (`makeFate`): for each round, who wins
@@ -48,7 +55,9 @@ and by roughly how much. The opponent's hand mirrors the categories of yours, bu
 card's identity is only decided when it is revealed. On every turn the bot projects the full range of
 what you could still do with your remaining cards and place swap, then picks a real card from the
 catalog that keeps the finale reachable, spreading the correction across its cards so nothing looks
-like a trump card. The final reveal lands on the sealed side of the line. The result screen shows the
+like a trump card. The final reveal lands on the sealed side of the line. Two more levers keep that reachable: the
+bot's scene is chosen at round start to fit the fate, and it holds a concealed second place it can
+swap in as a free action on its last turn. The result screen shows the
 fate seal so you can check that the outcome was decided up front.
 
 `src/engine/engine.test.ts` plays 500 seeded rounds with a random drafting and playing policy and

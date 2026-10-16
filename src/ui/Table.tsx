@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CARD_BY_ID, CATEGORY_META, MAIN_CATEGORIES } from '../data/cards';
+import { CARD_BY_ID, CATEGORY_META, MAIN_CATEGORIES, TIER_META } from '../data/cards';
 import { comboHints } from '../data/combos';
 import { BOT_AVATARS } from '../data/art';
 import { PACK_INFO, PACK_PRICES } from '../engine/draft';
@@ -304,7 +304,7 @@ function BotSlot({ id, i, s, round }: { id: string; i: number; s: Snapshot; roun
   let content: React.ReactNode;
   const inPlay = s.game?.phase === 'play' && round;
   if (inPlay && id === 'place' && round.bot.place) content = <Card def={round.bot.place.def} flags={{ scene: true }} badge="scene" />;
-  else if (s.botSlots.includes(id)) content = <Card back backCat={SLOT_CAT[id]} backRarity={1} flags={{ thinking: !!s.botThinking && i === 0 }} className="facedown" />;
+  else if (s.botSlots.includes(id)) content = <Card back backCat={SLOT_CAT[id]} flags={{ thinking: !!s.botThinking && i === 0 }} className="facedown" />;
   else content = <div className={`empty ${SPECIAL_IDS.includes(id) ? 'special' : ''}`}><CatIcon cat={SLOT_CAT[id]} /></div>;
   return (
     <div className={`slot s-${id}`} style={{ ['--i' as string]: i }}>
@@ -364,12 +364,22 @@ function DraftTools({ s }: { s: Snapshot }) {
 function Opening({ s }: { s: Snapshot }) {
   const o = s.opening!;
   const pack = s.draft!.packs.find((p) => p.id === o.packId)!;
-  const [sel, setSel] = useState<string | null>(null);
-  useEffect(() => setSel(null), [o.packId]);
+  const [revealedAt, setRevealedAt] = useState<Record<string, number>>({});
+  useEffect(() => setRevealedAt({}), [o.packId]);
   const needsCategory = pack.kind === 'baptized' && !pack.category;
-  const selected = sel ? o.cards.find((c) => c.id === sel) : null;
   const n = o.cards.length;
   const allRevealed = o.revealed.length >= n;
+  const tap = (c: CardDef, revealed: boolean) => {
+    if (o.mode !== 'open') return;
+    if (!revealed) {
+      setRevealedAt((m) => ({ ...m, [c.id]: Date.now() }));
+      controller.reveal(c.id);
+      return;
+    }
+    // ignore the second half of a fast double-tap on a card that just flipped
+    if (Date.now() - (revealedAt[c.id] ?? 0) < 450) return;
+    controller.pickCard(pack.id, c.id);
+  };
 
   return (
     <div className="overlay opening" onClick={() => o.mode === 'peek' && controller.closeOpening()}>
@@ -401,7 +411,7 @@ function Opening({ s }: { s: Snapshot }) {
           <>
             <div className="detail">
               <span className="eyebrow">{o.mode === 'peek' ? 'Premonition' : `${pack.label} pack`}</span>
-              <h2>{o.mode === 'peek' ? 'A glimpse inside' : allRevealed ? 'Pick one to keep' : 'Tap a card to flip it'}</h2>
+              <h2>{o.mode === 'peek' ? 'A glimpse inside' : allRevealed ? 'Tap a card to take it' : 'Tap a card to flip it'}</h2>
             </div>
             <div className={`fan n${n}`}>
               {o.cards.map((c, i) => {
@@ -411,28 +421,18 @@ function Opening({ s }: { s: Snapshot }) {
                 const lift = Math.abs(i - mid) * 7;
                 return (
                   <div key={c.id} className="fanitem" style={{ ['--rot' as string]: `${rot}deg`, ['--lift' as string]: `${lift}px`, ['--i' as string]: i }}>
-                    <Card
-                      def={c}
-                      back={!revealed}
-                      backCat={c.cat}
-                      backRarity={c.rarity}
-                      selected={sel === c.id}
-                      flags={{ flipped: revealed }}
-                      onClick={o.mode === 'open' ? () => (revealed ? setSel(sel === c.id ? null : c.id) : controller.reveal(c.id)) : undefined}
-                    />
+                    <Card def={c} back={!revealed} backCat={c.cat} backRarity={c.rarity} flags={{ flipped: revealed }} onClick={o.mode === 'open' ? () => tap(c, revealed) : undefined} />
                   </div>
                 );
               })}
             </div>
             <div className="detail blurbbox">
-              {selected ? (
-                <>
-                  <h3>{selected.name}</h3>
-                  <p>{selected.blurb}</p>
-                </>
-              ) : (
-                <p>{o.mode === 'peek' ? 'The pack stays sealed. Tap outside to close.' : allRevealed ? 'Tap a card to choose it.' : 'Cards glow with their tier. The symbol is their category.'}</p>
-              )}
+              <div className="tierlegend">
+                {([1, 2, 3, 4, 5, 6] as const).map((t) => (
+                  <span key={t} style={{ ['--tier' as string]: TIER_META[t].color }}>{TIER_META[t].label}</span>
+                ))}
+              </div>
+              <p>{o.mode === 'peek' ? 'The pack stays sealed. Tap outside to close.' : 'Flipped cards go straight into your set when tapped.'}</p>
             </div>
             {o.mode === 'open' ? (
               <div className="ctarow wide">
@@ -444,9 +444,6 @@ function Opening({ s }: { s: Snapshot }) {
                 {!allRevealed && !s.autoReveal && (
                   <button className="btn small" onClick={() => o.cards.forEach((c, i) => setTimeout(() => controller.reveal(c.id), i * 220))}>Flip all</button>
                 )}
-                <button className="btn primary glow" disabled={!selected} onClick={() => selected && controller.pickCard(pack.id, selected.id)}>
-                  Keep{selected ? ` ${selected.name}` : ''}
-                </button>
               </div>
             ) : (
               <button className="btn" onClick={() => controller.closeOpening()}>Close</button>

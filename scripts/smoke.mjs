@@ -40,9 +40,8 @@ async function draftAll() {
     const cards = page.locator('.fanitem .card');
     const c = await cards.count();
     if (c) {
-      await cards.nth(c - 1).click();
-      await page.waitForTimeout(150);
-      await page.getByRole('button', { name: /^Keep/ }).click();
+      await page.waitForTimeout(500);
+      await cards.nth(c - 1).click(); // flipped cards are taken on tap
       await page.waitForTimeout(2500);
     } else {
       const close = page.getByRole('button', { name: 'Close' });

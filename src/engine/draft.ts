@@ -39,10 +39,10 @@ export interface DraftState {
 }
 
 export const PACK_PRICES: Record<'basic' | 'enhanced' | 'baptized' | 'utility', number> = {
-  basic: 20,
-  enhanced: 45,
-  baptized: 70,
-  utility: 35,
+  basic: 30,
+  enhanced: 60,
+  baptized: 90,
+  utility: 45,
 };
 
 export const PACK_INFO: Record<PackKind, { label: string; desc: string }> = {
@@ -57,11 +57,11 @@ export const PACK_INFO: Record<PackKind, { label: string; desc: string }> = {
 export const STANDARD_LOADOUT = { basic: 5, enhanced: 2, baptized: 1, utility: 2 };
 
 const RARITY_WEIGHTS: Record<'basic' | 'enhanced' | 'baptized' | 'category' | 'redemption', Record<Rarity, number>> = {
-  basic: { 1: 55, 2: 30, 3: 12, 4: 3 },
-  enhanced: { 1: 15, 2: 35, 3: 38, 4: 12 },
-  baptized: { 1: 0, 2: 20, 3: 55, 4: 25 },
-  category: { 1: 30, 2: 38, 3: 25, 4: 7 },
-  redemption: { 1: 15, 2: 35, 3: 38, 4: 12 },
+  basic: { 1: 50, 2: 27, 3: 13, 4: 6, 5: 3, 6: 1 },
+  enhanced: { 1: 12, 2: 26, 3: 28, 4: 18, 5: 11, 6: 5 },
+  baptized: { 1: 0, 2: 8, 3: 28, 4: 30, 5: 22, 6: 12 },
+  category: { 1: 26, 2: 30, 3: 22, 4: 13, 5: 6, 6: 3 },
+  redemption: { 1: 12, 2: 26, 3: 28, 4: 18, 5: 11, 6: 5 },
 };
 
 const CATEGORY_WEIGHTS: Record<MainCategory, number> = { life: 30, stuff: 28, places: 14, ideas: 14, happenings: 14 };
@@ -70,7 +70,7 @@ const SPECIAL_WEIGHTS: Record<string, number> = { redemption: 20, god: 7, aether
 
 function rarityWeight(base: Record<Rarity, number>, luck: number): (r: Rarity) => number {
   // luck in [-1, 1] skews odds towards (or away from) higher rarities
-  return (r) => Math.max(0.5, base[r] * (1 + luck * (r - 2.5) * 0.55));
+  return (r) => Math.max(0.3, base[r] * (1 + luck * (r - 3.5) * 0.4));
 }
 
 export class Draft {
@@ -151,7 +151,7 @@ export class Draft {
 
   // ───────────── generation ─────────────
   private weightsFor(pack: Pack): Record<Rarity, number> {
-    if (pack.kind === 'mystery') return { 1: 0, 2: 0, 3: 0, 4: 0 };
+    if (pack.kind === 'mystery') return { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
     return RARITY_WEIGHTS[pack.kind];
   }
 
@@ -361,7 +361,7 @@ export class Draft {
   private applyDevil() {
     const cat = this.rng.pick(['life', 'stuff', 'ideas'] as MainCategory[]);
     const owned = this.ownedIds();
-    const pool = CARDS.filter((c) => c.cat === cat && c.rarity >= 3 && !owned.has(c.id));
+    const pool = CARDS.filter((c) => c.cat === cat && c.rarity >= 4 && !owned.has(c.id));
     const gift = this.rng.pick(pool);
     this.state.picks.push(this.newInst(gift));
     this.applyAbility(gift);

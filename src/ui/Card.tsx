@@ -1,6 +1,6 @@
-import { CATEGORY_META } from '../data/cards';
-import type { CardDef, Category } from '../engine/types';
-import { Art, CatIcon } from './Icon';
+import { CATEGORY_META, TIER_META } from '../data/cards';
+import type { CardDef, Category, Rarity } from '../engine/types';
+import { CardArt, CatIcon } from './Icon';
 
 interface Props {
   def?: CardDef | null;
@@ -52,8 +52,9 @@ export function modLabel(def: CardDef): string | null {
 export function Card({ def, back, backCat, backRarity, onClick, selected, dim, value, badge, flags, style, className }: Props) {
   const cat = def?.cat ?? backCat ?? 'special';
   const meta = CATEGORY_META[cat];
-  const rarity = def?.rarity ?? backRarity ?? 1;
-  const cls = ['card', `r${rarity}`, onClick ? 'tappable' : '', selected ? 'selected' : '', dim ? 'dim' : '', back ? 'is-back' : '', className ?? ''];
+  const rarity = (def?.rarity ?? backRarity ?? 1) as Rarity;
+  const neutral = !def && backRarity === undefined; // concealed opponent card: no tier tell
+  const cls = ['card', `r${rarity}`, neutral ? 'neutral' : '', onClick ? 'tappable' : '', selected ? 'selected' : '', dim ? 'dim' : '', back ? 'is-back' : '', className ?? ''];
   if (flags?.halved) cls.push('halved');
   if (flags?.doubled) cls.push('doubled');
   if (flags?.stolen) cls.push('stolen');
@@ -66,7 +67,7 @@ export function Card({ def, back, backCat, backRarity, onClick, selected, dim, v
   const valCls = def && value !== undefined && value !== def.rating ? (value > def.rating ? 'val boost' : 'val hurt') : 'val';
   const fx = def ? (badge ?? (def.cat === 'happenings' ? effectLabel(def) : def.cat === 'places' ? modLabel(def) : def.ability ? 'ability' : null)) : null;
   return (
-    <div className={cls.join(' ')} style={{ ...style, ['--hue' as string]: meta.hue }} onClick={onClick} role={onClick ? 'button' : undefined}>
+    <div className={cls.join(' ')} style={{ ...style, ['--hue' as string]: meta.hue, ['--tier' as string]: neutral ? '#8f9bff' : TIER_META[rarity].color }} onClick={onClick} role={onClick ? 'button' : undefined}>
       <div className="flipper">
         <div className="face back">
           <div className="holo" />
@@ -78,10 +79,7 @@ export function Card({ def, back, backCat, backRarity, onClick, selected, dim, v
         {def && (
           <div className="face front">
             <div className="art">
-              <div className="glowart">
-                <Art id={def.id} className="ico shadow" />
-                <Art id={def.id} className="ico main" />
-              </div>
+              <CardArt id={def.id} cat={cat} />
               <span className="cat">
                 <CatIcon cat={cat} /> {meta.short}
               </span>

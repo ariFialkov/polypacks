@@ -457,6 +457,7 @@ class Controller {
     const round = startRound(game, deck);
     // the opponent's concealed cards mirror your filled slots
     const botSlots = deck.slots.filter((s) => s.card && s.card.def.cat !== 'places').map((s) => s.slot.id);
+    if (!botSlots.includes('flex')) botSlots.push('flex'); // their concealed second place
     this.draftObj = null;
     sfx.deal();
     this.commit({ game: { ...game, phase: 'play', deck }, round, draft: null, botSlots, botStatus: '', lastBotPlayUid: null });
@@ -504,7 +505,12 @@ class Controller {
       const cat = choice.def.cat;
       const prefer = cat === 'life' ? ['life1', 'life2', 'sp1', 'sp3'] : cat === 'stuff' ? ['stuff1', 'stuff2', 'stuff3', 'sp1', 'sp3'] : cat === 'ideas' ? ['idea', 'sp2', 'sp3'] : ['event', 'flex', 'sp2', 'sp3'];
       const slots = [...this.snap.botSlots];
-      const idx = slots.findIndex((s) => prefer.includes(s));
+      if (choice.swapTo) {
+        const fi = slots.indexOf('flex');
+        if (fi >= 0) slots.splice(fi, 1);
+        this.toast(`${game.bot.name} moves the scene to ${choice.swapTo.name}.`);
+      }
+      const idx = slots.findIndex((s) => prefer.includes(s) && !(s === 'flex' && cat !== 'happenings'));
       if (idx >= 0) slots.splice(idx, 1);
       else if (slots.length) slots.pop();
       sfx.flip();
