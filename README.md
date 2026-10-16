@@ -19,6 +19,12 @@ npm test           # engine simulations (draft, deck, 500 fated rounds)
 Install it from the browser's "Add to Home Screen" / install prompt; it works offline after the
 first load and saves the current game locally, so a refresh resumes where you were.
 
+## Card index
+
+`/cards/` is a second page of the same site: every card with its data, art ids and a notes box
+(saved in the browser, exportable), a selection bar that reports valid combos among the selected
+cards, and the full combo list. Source in `src/cards/`.
+
 ## How it is put together
 
 ```

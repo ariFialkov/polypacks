@@ -6,6 +6,11 @@ const base = process.env.BASE_PATH || '/';
 
 export default defineConfig({
   base,
+  build: {
+    rollupOptions: {
+      input: { main: 'index.html', cards: 'cards/index.html' },
+    },
+  },
   plugins: [
     react(),
     VitePWA({
