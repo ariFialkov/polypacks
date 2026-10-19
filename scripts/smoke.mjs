@@ -17,10 +17,16 @@ page.on('pageerror', (e) => errors.push('PAGEERROR ' + e.message));
 const shot = (n) => page.screenshot({ path: `${SHOTS}/${mobile ? 'm' : 'd'}-${n}.png` });
 const resultText = async () => (await page.locator('.overlay.result .inner').innerText().catch(() => 'NO RESULT')).replace(/\n+/g, ' | ').slice(0, 160);
 
-async function openMenuAndStart(mode) {
+async function openMenuAndStart(mode, stakeIndex = 0) {
   await page.mouse.click(200, 300);
   await page.waitForTimeout(500);
   await page.getByText(mode).click();
+  await page.waitForTimeout(400);
+  const stakes = page.locator('.stakebtn:not(:disabled)');
+  if (await stakes.count()) {
+    if (stakeIndex === 0) await shot(`stakes-${mode.split(' ')[0].toLowerCase()}`);
+    await stakes.nth(Math.min(stakeIndex, (await stakes.count()) - 1)).click();
+  }
   await page.waitForTimeout(2600); // dealing
 }
 
@@ -92,6 +98,7 @@ await openMenuAndStart('Zero-sum Series');
 await shot('table');
 await playMatch('series');
 console.log('series:', await resultText());
+console.log('hud:', await page.locator('.hud-mid').innerText());
 await page.locator('.overlay.result .btn', { hasText: 'Quit' }).click();
 await page.waitForTimeout(400);
 
@@ -107,7 +114,7 @@ await page.locator('.overlay.result .btn', { hasText: 'Home' }).click();
 await page.waitForTimeout(400);
 
 // margin with reload-resume mid-match and cash out
-await openMenuAndStart('Margin of Victory');
+await openMenuAndStart('Margin of Victory', 1);
 await playMatch('margin', { reloadAfter: 2 });
 console.log('margin:', await resultText());
 await page.locator('.overlay.result .btn', { hasText: /Cash out|Rematch/ }).click();

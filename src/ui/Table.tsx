@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CARD_BY_ID, CATEGORY_META, MAIN_CATEGORIES, TIER_META } from '../data/cards';
 import { ABILITIES } from '../data/abilities';
 import { COMBO_BY_ID, comboHints, findCombos } from '../data/combos';
@@ -6,14 +6,14 @@ import { MINIGAME_BY_ID } from '../data/minigames';
 import { BOT_AVATARS } from '../data/art';
 import { PACK_INFO, PACK_PRICES, activeCombos, deckOf, sideScore, unopened, type MPack, type MatchState, type MinigameOutcome, type Prompt, type SideState } from '../engine/match';
 import type { DeckSlot } from '../engine/deck';
-import { MODE_INFO } from '../engine/game';
+import { MODE_INFO, seriesPrize } from '../engine/game';
 import { hashString } from '../engine/rng';
 import type { CardDef, CardInst, MainCategory, Side } from '../engine/types';
 import { Card } from './Card';
 import { Wallet } from './Home';
 import { Art, CatIcon, Ui } from './Icon';
 import { PackArt, PackTile } from './PackTile';
-import { controller, SERIES_PRIZE, type Snapshot } from './store';
+import { controller, type Snapshot } from './store';
 
 const ROW1 = ['place', 'event', 'flex'];
 const ROW2 = ['life1', 'life2', 'stuff1', 'stuff2', 'stuff3', 'idea'];
@@ -60,7 +60,7 @@ export function Table({ s }: { s: Snapshot }) {
             </div>
             {game.mode === 'margin' && <div className="bank">${game.bot.money}</div>}
             <ComboChips side={m.bot} />
-            <ScoreBadge value={sideScore(m.bot)} turn={m.turn === 'bot' && m.phase === 'draft'} />
+            <ScoreBadge key={m.seed} value={sideScore(m.bot)} turn={m.turn === 'bot' && m.phase === 'draft'} />
           </header>
           <div className="rows mirrored">
             <SlotRow ids={ROW2} deck={botDeck} side={m.bot} m={m} fresh={s.freshUids} />
@@ -130,7 +130,7 @@ export function Table({ s }: { s: Snapshot }) {
           )}
           {game.mode === 'margin' && <div className="bank">${game.you.money}</div>}
           <ComboChips side={m.you} />
-          <ScoreBadge value={sideScore(m.you)} turn={yourTurn} label="set" />
+          <ScoreBadge key={m.seed} value={sideScore(m.you)} turn={yourTurn} label="set" />
         </header>
       </section>
 
@@ -158,6 +158,7 @@ function Hud({ s }: { s: Snapshot }) {
       <div className="hud-mid">
         <span className="eyebrow">
           {MODE_INFO[game.mode].title}
+          {game.mode !== 'solitaire' && game.stake > 0 && ` · $${game.stake.toLocaleString('en-US')}`}
           {game.mode !== 'solitaire' && ` · round ${game.roundIndex + 1}`}
           {game.mode === 'series' && ` · ${game.you.roundsWon}–${game.bot.roundsWon}`}
         </span>
@@ -181,12 +182,71 @@ function packTargetable(p: MPack, s: Snapshot, prompt: Prompt | null): boolean {
   return false;
 }
 
+/** Remembers the last value and reports each change as a signed delta with a fresh key (for a one-shot animation). */
+function useDelta(value: number): { n: number; k: number } | null {
+  const prev = useRef(value);
+  const [d, setD] = useState<{ n: number; k: number } | null>(null);
+  useEffect(() => {
+    if (value !== prev.current) {
+      setD({ n: value - prev.current, k: Date.now() });
+      prev.current = value;
+    }
+  }, [value]);
+  return d;
+}
+
 function ScoreBadge({ value, turn, label }: { value: number; turn: boolean; label?: string }) {
+  const d = useDelta(value);
   return (
     <div className={`scorebadge ${turn ? 'turn' : ''}`}>
       {label && <span className="lbl">{label}</span>}
       <span className="money">${value}</span>
+      {d && (
+        <span key={d.k} className={`scoredelta ${d.n > 0 ? 'up' : 'down'}`}>
+          {d.n > 0 ? '+' : '−'}
+          {Math.abs(d.n)}
+        </span>
+      )}
     </div>
+  );
+}
+
+/** A compact, read-only copy of one side's set, shown around the pack opener. */
+function MiniBoard({ side, name, you }: { side: SideState; name: string; you?: boolean }) {
+  const deck = deckOf(side);
+  const bySlot = new Map(deck.slots.map((x) => [x.slot.id, x]));
+  const specials = SPECIAL_IDS.filter((id) => bySlot.has(id));
+  const cell = (id: string) => {
+    const slot = bySlot.get(id);
+    if (!slot) return null;
+    const card = slot.card;
+    if (!card) {
+      return (
+        <div key={id} className="minicell empty">
+          <CatIcon cat={SLOT_CAT[id]} />
+        </div>
+      );
+    }
+    const concealed = !you && side.concealedUids.includes(card.uid);
+    return (
+      <div key={id} className="minicell">
+        {concealed ? <Card back backCat={card.def.cat} className="mini" /> : <Card def={card.def} className="mini" />}
+      </div>
+    );
+  };
+  return (
+    <section className={`miniboard ${you ? 'you' : 'bot'}`} onClick={(e) => e.stopPropagation()}>
+      <header>
+        <span className="nm">{name}</span>
+        <span className="st">{you ? hintText(side) : `${unopened(side).length} packs left`}</span>
+        <ComboChips side={side} />
+        <ScoreBadge value={sideScore(side)} turn={false} label={you ? 'set' : undefined} />
+      </header>
+      <div className="minirows">
+        <div className="minirow">{[...ROW1, ...specials].map(cell)}</div>
+        <div className="minirow">{ROW2.map(cell)}</div>
+      </div>
+    </section>
   );
 }
 
@@ -323,10 +383,14 @@ function Opening({ s, m }: { s: Snapshot; m: MatchState }) {
     findCombos([...held, c.id])
       .filter((x) => !already.has(x.id) && !m.you.cancelledCombos.includes(x.id))
       .sort((a, b) => b.bonus - a.bonus)[0];
+  // what each card would add to your set right now (best nine + combos)
+  const base = sideScore(m.you);
+  const gainOf = (c: CardDef) => (c.cat === 'special' ? null : sideScore({ ...m.you, cards: [...m.you.cards, { uid: 'preview', def: c }] }) - base);
   const title = o.mode === 'peek' ? 'A glimpse inside' : o.catPack ? (o.firstPick ? 'Now tap the card that goes under' : 'Tap the card that stays face up') : allRevealed ? 'Tap a card to take it' : 'Tap a card to flip it';
 
   return (
     <div className="overlay opening" onClick={() => o.mode === 'peek' && controller.closeOpening()}>
+      {!m.solo && <MiniBoard side={m.bot} name={m.bot.name} />}
       <div className="inner" onClick={(e) => e.stopPropagation()}>
         {needsCategory ? (
           <>
@@ -361,12 +425,14 @@ function Opening({ s, m }: { s: Snapshot; m: MatchState }) {
               {o.cards.map((c, i) => {
                 const revealed = o.revealed.includes(c.id);
                 const combo = revealed ? comboFor(c) : undefined;
+                const gain = revealed && o.mode === 'open' ? gainOf(c) : null;
                 const mid = (n - 1) / 2;
                 const rot = (i - mid) * (n > 4 ? 7 : 11);
                 const lift = Math.abs(i - mid) * 7;
                 return (
                   <div key={c.id} className={`fanitem ${o.divine === c.id ? 'holy' : ''} ${combo ? 'combo' : ''}`} style={{ ['--rot' as string]: `${rot}deg`, ['--lift' as string]: `${lift}px`, ['--i' as string]: i }}>
                     <Card def={c} back={!revealed} backCat={c.cat} backRarity={c.rarity} selected={o.firstPick === c.id} flags={{ flipped: revealed }} onClick={o.mode === 'open' ? () => tap(c, revealed) : undefined} badge={revealed && c.ability ? ABILITIES[c.ability].name : undefined} />
+                    {gain !== null && <span className={`gaintag ${gain > 0 ? 'up' : gain < 0 ? 'down' : 'flat'}`}>{gain > 0 ? `+${gain}` : gain < 0 ? `−${-gain}` : '+0'}</span>}
                     {combo && (
                       <span className="combotag">
                         {combo.name} <b>+{combo.bonus}</b>
@@ -382,7 +448,7 @@ function Opening({ s, m }: { s: Snapshot; m: MatchState }) {
                   <span key={t} style={{ ['--tier' as string]: TIER_META[t].color }}>{TIER_META[t].label}</span>
                 ))}
               </div>
-              <p>{o.mode === 'peek' ? 'The pack stays sealed. Tap outside to close.' : o.divine ? 'The holy outline marks the best card for your set.' : 'Flipped cards go straight into your set when tapped.'}</p>
+              <p>{o.mode === 'peek' ? 'The pack stays sealed. Tap outside to close.' : o.divine ? 'The holy outline marks the best card for your set.' : 'The number above a card is what it adds to your set.'}</p>
             </div>
             {o.mode === 'open' ? (
               <div className="ctarow wide">
@@ -401,6 +467,7 @@ function Opening({ s, m }: { s: Snapshot; m: MatchState }) {
           </>
         )}
       </div>
+      <MiniBoard side={m.you} name="You" you />
     </div>
   );
 }
@@ -729,7 +796,7 @@ function ResultOverlay({ s }: { s: Snapshot }) {
             <div style={{ textAlign: 'right' }}><div className="eyebrow">Theirs</div><div className="money" style={{ fontSize: 24 }}>${game.bot.money}</div></div>
           </div>
         )}
-        {over && game.mode === 'series' && <p className="sub">{won ? `+$${SERIES_PRIZE} to your wallet.` : 'Entry fee lost.'}</p>}
+        {over && game.mode === 'series' && <p className="sub">{won ? `+$${seriesPrize(game.stake)} to your wallet.` : `$${game.stake || 100} entry lost.`}</p>}
         {m && <div className="row" style={{ gap: 16, flexWrap: 'wrap', justifyContent: 'center' }}><span className="sub">{activeCombos(m.you).map((c) => c.name).join(', ') || 'No combos'}</span></div>}
         {deck && <SetStrip cards={deck.slots.map((x) => x.card).filter((c): c is CardInst => !!c)} />}
         {over ? (

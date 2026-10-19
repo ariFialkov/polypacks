@@ -40,12 +40,12 @@ export const MODE_INFO: Record<Mode, { title: string; tagline: string; rules: st
   series: {
     title: 'Zero-sum Series',
     tagline: 'Best of three. Most money on the table wins the round.',
-    rules: ['Both start at $0.', 'Open packs, build a set, outplay them.', 'Win 2 rounds to take the series.'],
+    rules: ['Pick an entry from $100 to $2,500.', 'Open packs, build a set, outplay them.', 'Win 2 rounds to take two and a half times your entry.'],
   },
   margin: {
     title: 'Margin of Victory',
     tagline: 'Same stake, same packs. Take as much from them as you can.',
-    rules: ['Both buy in with the same stake.', 'The loser pays the winner the score margin each round.', 'Cash out whenever, or play until someone is broke.'],
+    rules: ['Pick a buy-in from $100 to $1,000; both sides start with it.', 'The loser pays the winner the score margin each round, at $1 a point for a $300 buy-in and scaled to yours.', 'Cash out whenever, or play until someone is broke.'],
   },
   solitaire: {
     title: 'Solitaire',
@@ -54,7 +54,21 @@ export const MODE_INFO: Record<Mode, { title: string; tagline: string; rules: st
   },
 };
 
-export const STAKES: Record<Mode, number> = { series: 0, margin: 300, solitaire: 300 };
+export const STAKES: Record<Mode, number> = { series: 100, margin: 300, solitaire: 300 };
+
+/** Stake choices for the two versus modes. A series is three full drafts, so its entries run higher. */
+export const STAKE_OPTIONS: Record<'series' | 'margin', number[]> = {
+  series: [100, 250, 500, 1000, 2500],
+  margin: [100, 200, 300, 500, 1000],
+};
+/** Winning a series pays two and a half times the entry. */
+export function seriesPrize(entry: number): number {
+  return Math.round((entry || STAKES.series) * 2.5);
+}
+/** Margin of Victory pays the score margin in dollars at a $300 buy-in, scaled to the buy-in chosen. */
+export function marginRate(buyIn: number): number {
+  return (buyIn || STAKES.margin) / STAKES.margin;
+}
 
 function sealFate(seed: number, rounds: RoundFate[]): string {
   return hashString(seed + ':' + rounds.map((r) => (r.playerWins ? 'W' : 'L') + r.margin).join(',')).toString(16).padStart(8, '0');
@@ -73,18 +87,19 @@ export function makeFate(seed: number, mode: Mode): Fate {
   return { seed, rounds, seal: sealFate(seed, rounds) };
 }
 
-export function newGame(mode: Mode, seed: number): GameState {
+export function newGame(mode: Mode, seed: number, stakeChoice?: number): GameState {
   const rng = new Rng(seed ^ 0x51ed270b);
   const bot = botIdentity(rng);
-  const stake = STAKES[mode];
+  const stake = stakeChoice ?? STAKES[mode];
+  const money = mode === 'series' ? 0 : stake;
   return {
     mode,
     seed,
     fate: makeFate(seed, mode),
     phase: mode === 'solitaire' ? 'shop' : 'match',
     roundIndex: 0,
-    you: { money: stake, roundsWon: 0 },
-    bot: { money: stake, roundsWon: 0, name: bot.name },
+    you: { money, roundsWon: 0 },
+    bot: { money, roundsWon: 0, name: bot.name },
     stake,
     spent: 0,
     history: [],
@@ -126,8 +141,9 @@ export function settleRound(game: GameState, r: MatchResult): GameState {
     if (r.winner === 'bot') g.bot.roundsWon++;
     moneyDelta = r.winner === 'you' ? r.margin : r.winner === 'bot' ? -r.margin : 0;
   } else if (g.mode === 'margin') {
-    if (r.winner === 'you') moneyDelta = Math.min(r.margin, g.bot.money);
-    else if (r.winner === 'bot') moneyDelta = -Math.min(r.margin, g.you.money);
+    const owed = r.margin > 0 ? Math.max(1, Math.round(r.margin * marginRate(g.stake))) : 0;
+    if (r.winner === 'you') moneyDelta = Math.min(owed, g.bot.money);
+    else if (r.winner === 'bot') moneyDelta = -Math.min(owed, g.you.money);
     g.you.money += moneyDelta;
     g.bot.money -= moneyDelta;
     if (r.winner === 'you') g.you.roundsWon++;

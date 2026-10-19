@@ -3,8 +3,10 @@
 A 2D casual pack-opening / card-betting game that runs as a PWA on phones and desktops.
 
 Open packs, keep one card from each, build the most valuable set, and out-draft a simulated
-opponent in one of three modes: **Zero-sum Series** (best of three), **Margin of Victory**
-(bankroll betting, cash out any time) or **Solitaire** (spend a stake on packs, build the best set).
+opponent in one of three modes: **Zero-sum Series** (best of three; entry $100–$2,500, the winner
+takes 2.5× the entry), **Margin of Victory** (bankroll betting; buy-in $100–$1,000, the margin is paid
+per point scaled to the buy-in, cash out any time) or **Solitaire** (spend a stake on packs, build the
+best set).
 
 ## Running it
 

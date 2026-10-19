@@ -510,6 +510,86 @@ p {
   --c1: #8a5cff;
   --c2: #ff2d95;
 }
+.stakepick {
+  --c1: #ffcf4a;
+  --c2: #ff6a3d;
+  width: 100%;
+  max-width: 980px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  animation: fadeIn 0.25s ease both;
+}
+.stakepick.m-margin {
+  --c1: #3dffb0;
+  --c2: #2ee6ff;
+}
+.stakepick .sub {
+  color: var(--muted);
+  max-width: 460px;
+}
+.stakes {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  margin-top: 14px;
+}
+.stakebtn {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  border-radius: 20px;
+  padding: 22px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: inset 0 0 calc(30px + var(--i) * 10px) -14px var(--c1);
+  animation: dealIn 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.1) both;
+  animation-delay: calc(var(--i) * 0.05s);
+  transition: transform 0.15s, border-color 0.2s;
+}
+.stakebtn:not(:disabled):hover,
+.stakebtn:not(:disabled):active {
+  border-color: var(--c1);
+  transform: translateY(-2px);
+}
+.stakebtn .amt {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: clamp(22px, 3.2vw, 34px);
+  color: #fff;
+  text-shadow: 0 0 18px var(--c1);
+}
+.stakebtn .what {
+  font-size: 13px;
+  color: var(--muted);
+}
+.stakebtn .lock {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--bad);
+}
+.stakebtn:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+@media (max-width: 640px) {
+  .stakes {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .stakebtn {
+    flex-direction: row;
+    justify-content: space-between;
+    padding: 14px 18px;
+  }
+}
 .modecard:active {
   transform: scale(0.97);
 }
@@ -764,8 +844,185 @@ p {
 }
 
 /* fan-out */
+/* the opener is a raised sheet between two translucent copies of the boards */
+.overlay.opening {
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+  background: rgba(4, 4, 12, 0.6);
+  backdrop-filter: blur(8px);
+}
 .overlay.opening .inner {
   overflow: visible;
+  flex: 1;
+  min-height: 0;
+  justify-content: center;
+  gap: 12px;
+}
+.miniboard {
+  --mw: clamp(34px, calc((min(100vw, 860px) - 96px) / 10), 66px);
+  width: 100%;
+  max-width: 860px;
+  padding: 8px 12px 10px;
+  border-radius: 18px;
+  background: rgba(20, 18, 44, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 40px -24px rgba(143, 155, 255, 0.6);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  opacity: 0.94;
+  flex-shrink: 0;
+  animation: fadeIn 0.3s ease both;
+}
+.miniboard.bot {
+  order: -1;
+}
+.miniboard header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.miniboard header .nm {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.miniboard header .st {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.miniboard header .combochips {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.miniboard .scorebadge {
+  font-size: 17px;
+  padding: 3px 10px;
+}
+.minirows {
+  display: flex;
+  justify-content: center;
+  gap: calc(var(--mw) * 0.35);
+}
+.minirow {
+  display: flex;
+  gap: 5px;
+}
+.minicell {
+  width: var(--mw);
+  aspect-ratio: 5 / 7;
+}
+.minicell .card.mini {
+  --w: var(--mw);
+}
+.minicell.empty {
+  border-radius: calc(var(--mw) * 0.1);
+  border: 1px dashed rgba(255, 255, 255, 0.16);
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, 0.22);
+}
+.minicell.empty svg {
+  width: 42%;
+  height: 42%;
+}
+@media (max-width: 640px) {
+  .miniboard {
+    --mw: clamp(34px, calc((100vw - 70px) / 6.4), 56px);
+    padding: 6px 10px 8px;
+  }
+  .minirows {
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+  }
+  .miniboard header .combochips {
+    display: none;
+  }
+}
+/* what a revealed card adds to your set */
+.gaintag {
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  transform: translate(-50%, -6px);
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: 0.02em;
+  padding: 1px 9px;
+  border-radius: 999px;
+  pointer-events: none;
+  animation: fadeIn 0.3s ease both;
+  z-index: 2;
+}
+.gaintag.up {
+  color: var(--good);
+  text-shadow: 0 0 10px rgba(61, 255, 176, 0.7);
+  background: rgba(8, 30, 22, 0.75);
+}
+.gaintag.flat {
+  color: var(--muted);
+  background: rgba(10, 10, 24, 0.7);
+}
+.gaintag.down {
+  color: var(--bad);
+  background: rgba(30, 8, 14, 0.75);
+}
+/* a floating +N / -N beside a total each time it changes */
+.scorebadge {
+  position: relative;
+}
+.scoredelta {
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  margin-left: 8px;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 0.82em;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  animation: scoreDelta 1.9s ease-out both;
+  z-index: 3;
+}
+.scoredelta.up {
+  color: var(--good);
+  text-shadow: 0 0 12px rgba(61, 255, 176, 0.8);
+}
+.scoredelta.down {
+  color: var(--bad);
+  text-shadow: 0 0 12px rgba(255, 77, 109, 0.8);
+}
+@keyframes scoreDelta {
+  0% {
+    opacity: 0;
+    transform: translate(-6px, -50%) scale(0.8);
+  }
+  15% {
+    opacity: 1;
+    transform: translate(0, -50%) scale(1.1);
+  }
+  70% {
+    opacity: 1;
+    transform: translate(0, -90%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(0, -140%) scale(1);
+  }
 }
 .fan {
   display: flex;
@@ -1005,14 +1262,17 @@ p {
   -webkit-backface-visibility: hidden;
   overflow: hidden;
 }
-/* the side facing away is also hidden outright (half a flip later), so a back never shows mirrored text
-   when a browser drops backface-visibility (filters, flattened 3D contexts) */
+/* The side facing away is also hidden outright, so a back never shows mirrored text when a browser drops
+   backface-visibility (filters, flattened 3D contexts). The face turning toward you is visible at once
+   (backface-visibility keeps it hidden until it passes edge-on); the face turning away is hidden once the
+   flip passes edge-on, which with the flipper's easing is ~100ms into the 550ms turn. */
 .card .face {
-  transition: visibility 0s linear 0.28s;
+  transition: visibility 0s linear 0s;
 }
 .card.is-back .face.front,
 .card:not(.is-back) .face.back {
   visibility: hidden;
+  transition: visibility 0s linear 0.1s;
 }
 .card .face.back {
   transform: rotateY(180deg);

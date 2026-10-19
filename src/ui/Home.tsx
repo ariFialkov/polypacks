@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { MODE_INFO, STAKES, type Mode } from '../engine/game';
+import { MODE_INFO, marginRate, seriesPrize, STAKE_OPTIONS, type Mode } from '../engine/game';
 import { PackArt } from './PackTile';
 import { Ui } from './Icon';
-import { controller, SERIES_ENTRY, SERIES_PRIZE, type Snapshot } from './store';
+import { controller, stakeBudget, type Snapshot } from './store';
 
 const RAIL: { kind: 'basic' | 'enhanced' | 'baptized' | 'category' | 'redemption'; label: string; count: number; category?: string }[] = [
   { kind: 'basic', label: 'Basic', count: 5 },
@@ -21,7 +21,9 @@ const RAIL: { kind: 'basic' | 'enhanced' | 'baptized' | 'category' | 'redemption
 
 export function Home({ s }: { s: Snapshot }) {
   const [rules, setRules] = useState(false);
+  const [stakeFor, setStakeFor] = useState<'series' | 'margin' | null>(null);
   const stop = (e: React.SyntheticEvent) => e.stopPropagation();
+  const money = (n: number) => `$${n.toLocaleString('en-US')}`;
   return (
     <div className="home" onClick={() => !s.menuOpen && !rules && controller.openMenu(true)}>
       <div className="hud" onClick={stop}>
@@ -57,21 +59,43 @@ export function Home({ s }: { s: Snapshot }) {
 
       {s.menuOpen && (
         <div className="menu" onClick={stop}>
-          <button className="hudbtn back" onClick={() => controller.openMenu(false)} aria-label="Back">
+          <button className="hudbtn back" onClick={() => (stakeFor ? setStakeFor(null) : controller.openMenu(false))} aria-label="Back">
             ‹
           </button>
-          <div className="modes">
-            {(Object.keys(MODE_INFO) as Mode[]).map((m, i) => (
-              <button key={m} className={`modecard m-${m}`} style={{ ['--i' as string]: i }} onClick={() => controller.start(m)}>
-                <div className="mico">
-                  <Ui name={`mode-${m}`} />
-                </div>
-                <div className="mname">{MODE_INFO[m].title}</div>
-                <div className="mdesc">{MODE_INFO[m].tagline}</div>
-                <div className="mstake">{m === 'series' ? `Entry $${SERIES_ENTRY} · win $${SERIES_PRIZE}` : m === 'margin' ? `Buy-in $${STAKES.margin}` : 'Spend what you like'}</div>
-              </button>
-            ))}
-          </div>
+          {stakeFor ? (
+            <div className={`stakepick m-${stakeFor}`}>
+              <span className="eyebrow">{MODE_INFO[stakeFor].title}</span>
+              <h2>Choose your stake</h2>
+              <p className="sub">{stakeFor === 'series' ? 'Best of three. Win the series to take two and a half times your entry.' : 'Both sides buy in with the same bankroll. Every point of margin moves money.'}</p>
+              <div className="stakes">
+                {STAKE_OPTIONS[stakeFor].map((amt, i) => {
+                  const ok = amt <= stakeBudget(s.wallet, stakeFor);
+                  return (
+                    <button key={amt} className={`stakebtn tier${i}`} style={{ ['--i' as string]: i }} disabled={!ok} onClick={() => controller.start(stakeFor, amt)}>
+                      <span className="amt">{money(amt)}</span>
+                      <span className="what">{stakeFor === 'series' ? `win ${money(seriesPrize(amt))}` : `${money(Math.round(marginRate(amt) * 100) / 100)} a point`}</span>
+                      {!ok && <span className="lock">need {money(amt)}</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <div className="modes">
+              {(Object.keys(MODE_INFO) as Mode[]).map((m, i) => (
+                <button key={m} className={`modecard m-${m}`} style={{ ['--i' as string]: i }} onClick={() => (m === 'solitaire' ? controller.start(m) : setStakeFor(m))}>
+                  <div className="mico">
+                    <Ui name={`mode-${m}`} />
+                  </div>
+                  <div className="mname">{MODE_INFO[m].title}</div>
+                  <div className="mdesc">{MODE_INFO[m].tagline}</div>
+                  <div className="mstake">
+                    {m === 'solitaire' ? 'Spend what you like' : `${m === 'series' ? 'Entry' : 'Buy-in'} ${money(STAKE_OPTIONS[m][0])}–${money(STAKE_OPTIONS[m][STAKE_OPTIONS[m].length - 1])}`}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -102,7 +126,7 @@ export function Home({ s }: { s: Snapshot }) {
                 <li key={m}><b>{MODE_INFO[m].title}</b> – {MODE_INFO[m].rules.join(' ')}</li>
               ))}
             </ul>
-            <p className="credit">Card illustrations: Game Icons (game-icons.net), CC BY 3.0. <a href="cards/" style={{ color: "var(--gold)" }}>Browse the full card index</a>.</p>
+            <p className="credit">Card illustrations: Game Icons (CC BY 3.0), Font Awesome Free (CC BY 4.0) and Phosphor (MIT). <a href="cards/" style={{ color: "var(--gold)" }}>Browse the full card index</a>.</p>
             <button className="btn block" onClick={() => setRules(false)}>Got it</button>
           </div>
         </div>

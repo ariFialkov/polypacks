@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { PACK_PRICES, answer, botShouldAct, flipCat, openPack, pickCard, runBotTurn, unopened, useDelorean, usePeek, type Answer, type MatchState, type MinigameOutcome } from '../engine/match';
-import { attachBot, cashOut, newGame, nextRound, settleRound, solitaireResult, startMatch, type GameState, type Mode, STAKES } from '../engine/game';
+import { attachBot, cashOut, newGame, nextRound, seriesPrize, settleRound, solitaireResult, startMatch, STAKE_OPTIONS, type GameState, type Mode, STAKES } from '../engine/game';
 import { randomSeed } from '../engine/rng';
 import type { CardDef, MainCategory } from '../engine/types';
 import { sfx, soundEnabled, setSoundEnabled } from './sound';
@@ -46,9 +46,12 @@ const SAVE_KEY = 'polypacks.save.v3';
 const SCORES_KEY = 'polypacks.scores.v1';
 const WALLET_KEY = 'polypacks.wallet.v1';
 const AUTO_KEY = 'polypacks.autoreveal';
-export const SERIES_ENTRY = 100;
-export const SERIES_PRIZE = 250;
 export const WALLET_FLOOR = 500;
+
+/** What the wallet can stake: below the cheapest table, the house fronts the floor. */
+export function stakeBudget(wallet: number, mode: 'series' | 'margin'): number {
+  return wallet < STAKE_OPTIONS[mode][0] ? Math.max(wallet, WALLET_FLOOR) : wallet;
+}
 
 const BOT_LINES = ['is weighing options…', 'is reading card text very slowly…', 'is building a combo (allegedly)…', 'hesitated. Then committed.', 'is not telling.', 'is eyeing your set…'];
 
@@ -198,18 +201,29 @@ class Controller {
     this.commit({ game: null, match: null, opening: null, botBusy: false, tool: null, dealing: false, specialFx: null, menuOpen: false, minigameShow: null, freshUids: [] });
   }
 
-  start(mode: Mode) {
+  start(mode: Mode, stakeChoice?: number) {
     this.clearTimers();
-    const need = mode === 'series' ? SERIES_ENTRY : STAKES[mode];
     let wallet = this.snap.wallet;
-    if (wallet < need) {
+    let stake = STAKES[mode];
+    if (mode !== 'solitaire') {
+      const options = STAKE_OPTIONS[mode];
+      stake = stakeChoice && options.includes(stakeChoice) ? stakeChoice : options[0];
+      const budget = stakeBudget(wallet, mode);
+      if (budget > wallet) {
+        wallet = budget;
+        this.toast(`The house fronts you $${WALLET_FLOOR}.`, 'good');
+      }
+      if (stake > wallet) {
+        this.toast(`That table needs $${stake}.`, 'bad');
+        return;
+      }
+      wallet -= stake;
+    } else if (wallet < stake) {
       wallet = Math.max(wallet, WALLET_FLOOR);
       this.toast(`The house fronts you $${WALLET_FLOOR}.`, 'good');
     }
-    if (mode === 'series') wallet -= SERIES_ENTRY;
-    if (mode === 'margin') wallet -= STAKES.margin;
     writeNum(WALLET_KEY, wallet);
-    const game = newGame(mode, randomSeed());
+    const game = newGame(mode, randomSeed(), stake);
     sfx.cash();
     this.commit({ game, wallet, match: null, opening: null, botBusy: false, tool: null, menuOpen: false, specialFx: null, minigameShow: null, freshUids: [] });
     if (mode !== 'solitaire') this.beginMatch();
@@ -487,7 +501,7 @@ class Controller {
     else sfx.lose();
     let wallet = this.snap.wallet;
     if (g.phase === 'gameOver') {
-      if (g.mode === 'series' && g.winner === 'you') wallet += SERIES_PRIZE;
+      if (g.mode === 'series' && g.winner === 'you') wallet += seriesPrize(g.stake);
       if (g.mode === 'margin') wallet += g.you.money;
       writeNum(WALLET_KEY, wallet);
     }
@@ -514,7 +528,7 @@ class Controller {
   restartSame() {
     const game = this.snap.game;
     if (!game) return;
-    this.start(game.mode);
+    this.start(game.mode, game.stake);
   }
 
   unopenedCount(): number {

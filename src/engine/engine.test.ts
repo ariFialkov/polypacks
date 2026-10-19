@@ -3,7 +3,7 @@ import { Rng } from './rng';
 import { CARDS } from '../data/cards';
 import { COMBOS } from '../data/combos';
 import { CARD_ART } from '../data/art';
-import { newGame, startMatch, roundFate, settleRound } from './game';
+import { marginRate, newGame, seriesPrize, startMatch, roundFate, settleRound, STAKE_OPTIONS } from './game';
 import { answer, botShouldAct, flipCat, openPack, pickCard, runBotTurn, unopened, useDelorean, usePeek, type MatchState } from './match';
 import type { MainCategory } from './types';
 
@@ -102,6 +102,24 @@ describe('card data', () => {
   });
   it('rates every non-??? card on a 40–99 scale', () => {
     for (const c of CARDS) if (c.cat !== 'special') expect(c.rating >= 40 && c.rating <= 99, c.id).toBe(true);
+  });
+});
+
+describe('stakes', () => {
+  it('offers five stakes per versus mode, series higher', () => {
+    expect(STAKE_OPTIONS.series).toHaveLength(5);
+    expect(STAKE_OPTIONS.margin).toHaveLength(5);
+    expect(STAKE_OPTIONS.series[4]).toBeGreaterThan(STAKE_OPTIONS.margin[4]);
+    expect(seriesPrize(500)).toBe(1250);
+  });
+  it('scales margin payouts with the buy-in', () => {
+    const r = { youScore: 500, botScore: 460, winner: 'you' as const, margin: 40 };
+    expect(settleRound(newGame('margin', 7, 300), r).history[0].moneyDelta).toBe(40);
+    expect(settleRound(newGame('margin', 7, 1000), r).history[0].moneyDelta).toBe(Math.round(40 * marginRate(1000)));
+    expect(settleRound(newGame('margin', 7, 100), r).history[0].moneyDelta).toBe(13);
+    const g = newGame('series', 7, 1000);
+    expect(g.stake).toBe(1000);
+    expect(g.you.money).toBe(0);
   });
 });
 
