@@ -22,6 +22,12 @@ npm run smoke      # Playwright walkthrough of every mode against a running prev
 Install it from the browser's "Add to Home Screen" / install prompt; it works offline after the
 first load and saves the current game locally, so a refresh resumes where you were.
 
+The build is portable. All paths are relative, and the game (`dist/index.html`) and the card index
+(`dist/cards/index.html`) are each a single self-contained HTML file with scripts, styles and fonts
+inlined. Upload the whole `dist` folder anywhere: a domain root, a sub-folder, or a platform that
+embeds games in a sandboxed iframe. The only other files are icons, `manifest.json` and the offline
+service worker, which is skipped where the host doesn't allow one.
+
 ## How a match goes
 
 The match *is* the draft. You and the opponent each hold the same loadout of packs on the horizon

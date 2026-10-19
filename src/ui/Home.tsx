@@ -126,7 +126,7 @@ export function Home({ s }: { s: Snapshot }) {
                 <li key={m}><b>{MODE_INFO[m].title}</b> – {MODE_INFO[m].rules.join(' ')}</li>
               ))}
             </ul>
-            <p className="credit">Card illustrations: Game Icons (CC BY 3.0), Font Awesome Free (CC BY 4.0) and Phosphor (MIT). <a href="cards/" style={{ color: "var(--gold)" }}>Browse the full card index</a>.</p>
+            <p className="credit">Card illustrations: Game Icons (CC BY 3.0), Font Awesome Free (CC BY 4.0) and Phosphor (MIT). <a href="cards/index.html" style={{ color: "var(--gold)" }}>Browse the full card index</a>.</p>
             <button className="btn block" onClick={() => setRules(false)}>Got it</button>
           </div>
         </div>

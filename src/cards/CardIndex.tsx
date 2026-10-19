@@ -79,7 +79,7 @@ export function CardIndex() {
             {CARDS.length} cards · {COMBOS.length} combos. Tap a card to select it; valid combos among your selection show up in the bar below. Notes are saved in this browser and can be exported.
           </p>
         </div>
-        <a className="btn small" href="../">Back to game</a>
+        <a className="btn small" href="../index.html">Back to game</a>
       </header>
 
       <div className="ix-tools">
