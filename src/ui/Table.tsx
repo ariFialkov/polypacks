@@ -19,7 +19,7 @@ const ROW1 = ['place', 'event', 'flex'];
 const ROW2 = ['life1', 'life2', 'stuff1', 'stuff2', 'stuff3', 'idea'];
 const SPECIAL_IDS = ['sp1', 'sp2', 'sp3'];
 const PACK_KINDS: (keyof typeof PACK_PRICES)[] = ['basic', 'enhanced', 'baptized', 'utility'];
-const SLOT_LABEL: Record<string, string> = { place: 'Place', event: 'Happening', flex: 'Place / Happening', life1: 'Life', life2: 'Life', stuff1: 'Stuff', stuff2: 'Stuff', stuff3: 'Stuff', idea: 'Idea', sp1: 'Life / Stuff', sp2: 'Idea / Happening', sp3: 'Wild' };
+const SLOT_LABEL: Record<string, string> = { place: 'Place', event: 'Event', flex: 'Place / Event', life1: 'Life', life2: 'Life', stuff1: 'Stuff', stuff2: 'Stuff', stuff3: 'Stuff', idea: 'Idea', sp1: 'Life / Stuff', sp2: 'Idea / Event', sp3: 'Wild' };
 const SLOT_CAT: Record<string, MainCategory> = { place: 'places', event: 'happenings', flex: 'places', life1: 'life', life2: 'life', stuff1: 'stuff', stuff2: 'stuff', stuff3: 'stuff', idea: 'ideas', sp1: 'life', sp2: 'ideas', sp3: 'stuff' };
 
 export function Table({ s }: { s: Snapshot }) {

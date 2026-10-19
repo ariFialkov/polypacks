@@ -276,7 +276,7 @@ export const CATEGORY_META: Record<Category, { label: string; short: string; hue
   stuff: { label: 'Stuff', short: 'STUFF', hue: 28 },
   places: { label: 'Places', short: 'PLACE', hue: 205 },
   ideas: { label: 'Ideas', short: 'IDEA', hue: 270 },
-  happenings: { label: 'Happenings', short: 'HAPPENING', hue: 350 },
+  happenings: { label: 'Happenings', short: 'EVENT', hue: 350 },
   special: { label: '???', short: '???', hue: 50 },
 };
 

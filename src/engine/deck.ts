@@ -16,13 +16,13 @@ export const BASE_SLOTS: SlotDef[] = [
   { id: 'stuff3', label: 'Stuff', accepts: ['stuff'], special: false },
   { id: 'place', label: 'Place', accepts: ['places'], special: false },
   { id: 'idea', label: 'Idea', accepts: ['ideas'], special: false },
-  { id: 'event', label: 'Happening', accepts: ['happenings'], special: false },
-  { id: 'flex', label: 'Place / Happening', accepts: ['places', 'happenings'], special: false },
+  { id: 'event', label: 'Event', accepts: ['happenings'], special: false },
+  { id: 'flex', label: 'Place / Event', accepts: ['places', 'happenings'], special: false },
 ];
 
 export const SPECIAL_SLOTS: SlotDef[] = [
   { id: 'sp1', label: 'Life / Stuff', accepts: ['life', 'stuff'], special: true },
-  { id: 'sp2', label: 'Idea / Happening', accepts: ['ideas', 'happenings'], special: true },
+  { id: 'sp2', label: 'Idea / Event', accepts: ['ideas', 'happenings'], special: true },
   { id: 'sp3', label: 'Wild', accepts: ['life', 'stuff', 'places', 'ideas', 'happenings'], special: true },
 ];
 

@@ -15,7 +15,7 @@ const RAIL: { kind: 'basic' | 'enhanced' | 'baptized' | 'category' | 'redemption
   { kind: 'redemption', label: 'Redemption', count: 2 },
   { kind: 'category', label: 'Ideas', count: 2, category: 'ideas' },
   { kind: 'enhanced', label: 'Enhanced', count: 3 },
-  { kind: 'category', label: 'Happenings', count: 2, category: 'happenings' },
+  { kind: 'category', label: 'Events', count: 2, category: 'happenings' },
   { kind: 'basic', label: 'Basic', count: 5 },
 ];
 
