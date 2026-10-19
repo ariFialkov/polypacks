@@ -38,9 +38,9 @@ export interface GameState {
 
 export const MODE_INFO: Record<Mode, { title: string; tagline: string; rules: string[] }> = {
   series: {
-    title: 'Zero-sum Series',
-    tagline: 'Best of three. Most money on the table wins the round.',
-    rules: ['Pick an entry from $100 to $2,500.', 'Open packs, build a set, outplay them.', 'Win 2 rounds to take two and a half times your entry.'],
+    title: 'Zero-sum',
+    tagline: 'One game, winner takes all. Match their stake and take it.',
+    rules: ['Pick a stake from $100 to $2,500; your opponent matches it.', 'Open packs, build a set, outplay them.', 'The higher set wins both stakes.'],
   },
   margin: {
     title: 'Margin of Victory',
@@ -50,20 +50,20 @@ export const MODE_INFO: Record<Mode, { title: string; tagline: string; rules: st
   solitaire: {
     title: 'Solitaire',
     tagline: 'No opponent. Spend your stake on packs. Build the most valuable set.',
-    rules: ['Buy packs with your stake.', 'Open them and pick the best cards.', 'Your set value is your score.'],
+    rules: ['Buy packs with your stake.', 'Open them and pick the best cards.', 'Only the cards you pick count: empty slots score nothing.', 'Your set value minus what you spent is your score.'],
   },
 };
 
 export const STAKES: Record<Mode, number> = { series: 100, margin: 300, solitaire: 300 };
 
-/** Stake choices for the two versus modes. A series is three full drafts, so its entries run higher. */
+/** Stake choices for the two versus modes. Zero-sum is all-or-nothing on one game, so its stakes run higher. */
 export const STAKE_OPTIONS: Record<'series' | 'margin', number[]> = {
   series: [100, 250, 500, 1000, 2500],
   margin: [100, 200, 300, 500, 1000],
 };
-/** Winning a series pays two and a half times the entry. */
+/** Zero-sum is winner-takes-all: the winner gets their own stake back plus the opponent's matching stake. */
 export function seriesPrize(entry: number): number {
-  return Math.round((entry || STAKES.series) * 2.5);
+  return (entry || STAKES.series) * 2;
 }
 /** Margin of Victory pays the score margin in dollars at a $300 buy-in, scaled to the buy-in chosen. */
 export function marginRate(buyIn: number): number {
@@ -76,7 +76,7 @@ function sealFate(seed: number, rounds: RoundFate[]): string {
 
 export function makeFate(seed: number, mode: Mode): Fate {
   const rng = new Rng(seed ^ 0x9e3779b9);
-  const count = mode === 'series' ? 3 : mode === 'margin' ? 24 : 1;
+  const count = mode === 'margin' ? 24 : 1;
   const rounds: RoundFate[] = [];
   for (let i = 0; i < count; i++) {
     const playerWins = rng.chance(0.49);
@@ -151,9 +151,10 @@ export function settleRound(game: GameState, r: MatchResult): GameState {
   }
   g.history.push({ index: g.roundIndex, youScore: r.youScore, botScore: r.botScore, winner: r.winner, margin: r.margin, moneyDelta });
   g.phase = 'roundResult';
-  if (g.mode === 'series' && (g.you.roundsWon >= 2 || g.bot.roundsWon >= 2)) {
+  if (g.mode === 'series') {
+    // one game: the result is final (a dead heat returns both stakes)
     g.phase = 'gameOver';
-    g.winner = g.you.roundsWon >= 2 ? 'you' : 'bot';
+    g.winner = r.winner === 'tie' ? null : r.winner;
   } else if (g.mode === 'margin' && (g.you.money <= 0 || g.bot.money <= 0 || g.roundIndex >= g.fate.rounds.length - 1)) {
     g.phase = 'gameOver';
     g.winner = g.you.money > g.bot.money ? 'you' : 'bot';

@@ -502,6 +502,7 @@ class Controller {
     let wallet = this.snap.wallet;
     if (g.phase === 'gameOver') {
       if (g.mode === 'series' && g.winner === 'you') wallet += seriesPrize(g.stake);
+      if (g.mode === 'series' && g.winner === null) wallet += g.stake; // dead heat: stake back
       if (g.mode === 'margin') wallet += g.you.money;
       writeNum(WALLET_KEY, wallet);
     }

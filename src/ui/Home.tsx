@@ -66,7 +66,7 @@ export function Home({ s }: { s: Snapshot }) {
             <div className={`stakepick m-${stakeFor}`}>
               <span className="eyebrow">{MODE_INFO[stakeFor].title}</span>
               <h2>Choose your stake</h2>
-              <p className="sub">{stakeFor === 'series' ? 'Best of three. Win the series to take two and a half times your entry.' : 'Both sides buy in with the same bankroll. Every point of margin moves money.'}</p>
+              <p className="sub">{stakeFor === 'series' ? 'One game, winner takes all. Your opponent matches your stake and the higher set takes both.' : 'Both sides buy in with the same bankroll. Every point of margin moves money.'}</p>
               <div className="stakes">
                 {STAKE_OPTIONS[stakeFor].map((amt, i) => {
                   const ok = amt <= stakeBudget(s.wallet, stakeFor);
@@ -90,7 +90,7 @@ export function Home({ s }: { s: Snapshot }) {
                   <div className="mname">{MODE_INFO[m].title}</div>
                   <div className="mdesc">{MODE_INFO[m].tagline}</div>
                   <div className="mstake">
-                    {m === 'solitaire' ? 'Spend what you like' : `${m === 'series' ? 'Entry' : 'Buy-in'} ${money(STAKE_OPTIONS[m][0])}–${money(STAKE_OPTIONS[m][STAKE_OPTIONS[m].length - 1])}`}
+                    {m === 'solitaire' ? 'Spend what you like' : `${m === 'series' ? 'Stake' : 'Buy-in'} ${money(STAKE_OPTIONS[m][0])}–${money(STAKE_OPTIONS[m][STAKE_OPTIONS[m].length - 1])}`}
                   </div>
                 </button>
               ))}
@@ -106,7 +106,7 @@ export function Home({ s }: { s: Snapshot }) {
             <h3>Packs</h3>
             <p>5 Basic (5 cards), 2 Enhanced (3 cards, better odds), 1 Baptized (one blessed card from a category you choose) and 2 Utility packs (2 cards from one category, or a Redemption pack that opens last). ??? cards can hide in any pack.</p>
             <h3>Turns</h3>
-            <p>You open a pack and take one card, then your opponent does the same. Every pick lands face up in your set: Place, Happening, Place-or-Happening on top; 2 Life, 3 Stuff, 1 Idea below. Combos add value and can unlock special slots. Empty slots at the end get a random common card.</p>
+            <p>You open a pack and take one card, then your opponent does the same. Every pick lands face up in your set: Place, Event, Place-or-Event on top; 2 Life, 3 Stuff, 1 Idea below. Combos add value and can unlock special slots. Against an opponent, empty slots at the end get a random common card. In Solitaire they stay empty and score nothing.</p>
             <h3>Abilities</h3>
             <p>Some cards do something when picked: burn, steal, swap, protect, peek, revive, cancel a combo. A card that changes hands fires its ability again for its new owner. Area 51 can classify a card so nobody can touch or see it.</p>
             <h3>Minigames</h3>

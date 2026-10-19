@@ -94,12 +94,12 @@ await page.waitForTimeout(600);
 await shot('home');
 
 // series: one round, then quit
-await openMenuAndStart('Zero-sum Series');
+await openMenuAndStart('Zero-sum');
 await shot('table');
 await playMatch('series');
 console.log('series:', await resultText());
 console.log('hud:', await page.locator('.hud-mid').innerText());
-await page.locator('.overlay.result .btn', { hasText: 'Quit' }).click();
+await page.locator('.overlay.result .btn', { hasText: 'Home' }).click();
 await page.waitForTimeout(400);
 
 // solitaire

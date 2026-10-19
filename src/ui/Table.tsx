@@ -159,8 +159,7 @@ function Hud({ s }: { s: Snapshot }) {
         <span className="eyebrow">
           {MODE_INFO[game.mode].title}
           {game.mode !== 'solitaire' && game.stake > 0 && ` · $${game.stake.toLocaleString('en-US')}`}
-          {game.mode !== 'solitaire' && ` · round ${game.roundIndex + 1}`}
-          {game.mode === 'series' && ` · ${game.you.roundsWon}–${game.bot.roundsWon}`}
+          {game.mode === 'margin' && ` · round ${game.roundIndex + 1}`}
         </span>
       </div>
       <Wallet amount={s.wallet} />
@@ -731,7 +730,7 @@ function Shop({ s }: { s: Snapshot }) {
             </div>
           );
         })}
-        <p className="sub">Your score is the value of the set minus what you spent. The set's value goes back to your wallet.</p>
+        <p className="sub">Your score is the value of the set minus what you spent. Only the cards you pick count, so empty slots score nothing. The set's value goes back to your wallet.</p>
         <div className="ctarow">
           <button className="btn ghost small" onClick={() => controller.home()}>Back</button>
           <button className="btn primary glow" onClick={() => controller.beginMatch()} disabled={game.spent <= 0}>Deal</button>
@@ -769,11 +768,11 @@ function ResultOverlay({ s }: { s: Snapshot }) {
   }
 
   const won = over ? game.winner === 'you' : last?.winner === 'you';
-  const headline = over ? (game.cashedOut ? 'Cashed out' : won ? 'You win' : 'They win') : last?.winner === 'you' ? 'Round won' : last?.winner === 'tie' ? 'Dead heat' : 'Round lost';
+  const headline = over ? (game.cashedOut ? 'Cashed out' : won ? 'You win' : game.winner === null ? 'Dead heat' : 'They win') : last?.winner === 'you' ? 'Round won' : last?.winner === 'tie' ? 'Dead heat' : 'Round lost';
   return (
     <div className="overlay result">
       <div className="inner">
-        <span className="eyebrow">{MODE_INFO[game.mode].title} · round {game.roundIndex + 1}</span>
+        <span className="eyebrow">{MODE_INFO[game.mode].title}{game.mode === 'series' ? ` · $${game.stake.toLocaleString('en-US')} each` : ` · round ${game.roundIndex + 1}`}</span>
         <div className={`headline ${won ? 'win' : 'lose'}`}>{headline}</div>
         {last && (
           <div className="scoreboard">
@@ -782,21 +781,13 @@ function ResultOverlay({ s }: { s: Snapshot }) {
             <div><div className="n money">${last.botScore}</div><div className="who">{game.bot.name}</div></div>
           </div>
         )}
-        {game.mode === 'series' && (
-          <div className="hist">
-            {[0, 1, 2].map((i) => {
-              const h = game.history[i];
-              return <i key={i} className={h ? (h.winner === 'you' ? 'w' : h.winner === 'bot' ? 'l' : '') : ''} />;
-            })}
-          </div>
-        )}
         {game.mode === 'margin' && (
           <div className="row spread panel">
             <div><div className="eyebrow">Your bankroll</div><div className="bigstat money" style={{ color: last && last.moneyDelta >= 0 ? 'var(--good)' : 'var(--bad)' }}>${game.you.money}</div>{last && <div className="sub">{last.moneyDelta >= 0 ? `+$${last.moneyDelta}` : `−$${-last.moneyDelta}`} this round</div>}</div>
             <div style={{ textAlign: 'right' }}><div className="eyebrow">Theirs</div><div className="money" style={{ fontSize: 24 }}>${game.bot.money}</div></div>
           </div>
         )}
-        {over && game.mode === 'series' && <p className="sub">{won ? `+$${seriesPrize(game.stake)} to your wallet.` : `$${game.stake || 100} entry lost.`}</p>}
+        {over && game.mode === 'series' && <p className="sub">{won ? `You take their $${(game.stake || 100).toLocaleString('en-US')} stake: +$${seriesPrize(game.stake).toLocaleString('en-US')} to your wallet.` : game.winner === null ? 'Both stakes returned.' : `They take your $${(game.stake || 100).toLocaleString('en-US')} stake.`}</p>}
         {m && <div className="row" style={{ gap: 16, flexWrap: 'wrap', justifyContent: 'center' }}><span className="sub">{activeCombos(m.you).map((c) => c.name).join(', ') || 'No combos'}</span></div>}
         {deck && <SetStrip cards={deck.slots.map((x) => x.card).filter((c): c is CardInst => !!c)} />}
         {over ? (

@@ -3,10 +3,10 @@
 A 2D casual pack-opening / card-betting game that runs as a PWA on phones and desktops.
 
 Open packs, keep one card from each, build the most valuable set, and out-draft a simulated
-opponent in one of three modes: **Zero-sum Series** (best of three; entry $100–$2,500, the winner
-takes 2.5× the entry), **Margin of Victory** (bankroll betting; buy-in $100–$1,000, the margin is paid
-per point scaled to the buy-in, cash out any time) or **Solitaire** (spend a stake on packs, build the
-best set).
+opponent in one of three modes: **Zero-sum** (one game, winner takes all; stakes $100–$2,500,
+matched by the opponent), **Margin of Victory** (bankroll betting; buy-in $100–$1,000, the margin is
+paid per point scaled to the buy-in, cash out any time) or **Solitaire** (spend a stake on packs, build
+the best set; only the cards you pick count).
 
 ## Running it
 
@@ -29,7 +29,7 @@ The match *is* the draft. You and the opponent each hold the same loadout of pac
 resolve whatever that card does, then the opponent does the same. Picks land face up on both boards,
 so the duel is readable from the first pack; the only way to hide a card is Area 51. The opponent keeps
 its last pack sealed until you are done, so the final reveal is always theirs. When the packs are gone
-any empty slot is filled with a random common of its category, the ??? box resolves, and the higher
+any empty slot is filled with a random common of its category (not in Solitaire, where empty slots score nothing), the ??? box resolves, and the higher
 set value wins (slot ratings + active combos).
 
 Cards have **abilities**, not score modifiers. They fire the moment a card is taken, and a card that

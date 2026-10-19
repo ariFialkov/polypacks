@@ -1,4 +1,4 @@
-import { CARDS, CARD_BY_ID, GROUPS, MAIN_CATEGORIES, cardsOf } from '../data/cards';
+import { CARDS, CARD_BY_ID, CATEGORY_META, GROUPS, MAIN_CATEGORIES, cardsOf } from '../data/cards';
 import { buildDeck, slotsFor, type Deck } from './deck';
 import { Rng, hashString } from './rng';
 import type { CardDef, CardInst, Category, MainCategory, Rarity, Side } from './types';
@@ -233,7 +233,7 @@ function makePacks(r: Rng, loadout: Loadout, prefix: string): MPack[] {
     if (r.chance(0.2)) add('redemption', 2, { locked: true });
     else {
       const cat = r.pick(MAIN_CATEGORIES) as MainCategory;
-      add('category', 2, { category: cat, label: cat[0].toUpperCase() + cat.slice(1) });
+      add('category', 2, { category: cat, label: CATEGORY_META[cat].label });
     }
   }
   return packs;
@@ -1239,11 +1239,9 @@ export function runBotTurn(s: MatchState) {
 function finish(s: MatchState) {
   if (s.phase !== 'draft') return;
   s.phase = 'fill';
-  // empty slots get a random common of the slot's category
-  for (const who of (s.solo ? ['you'] : ['you', 'bot']) as Side[]) {
-    const ss = side(s, who);
-    fillEmpty(s, ss);
-  }
+  // against an opponent, empty slots get a random common of the slot's category; in Solitaire only
+  // the cards you paid for count, so buying too few packs leaves slots (and combos) empty
+  if (!s.solo) for (const who of ['you', 'bot'] as Side[]) fillEmpty(s, side(s, who));
   // the box resolves: whatever is up counts (the bot chooses)
   if (!s.solo && s.bot.catPair && s.botDecisions) {
     if (s.botDecisions.catChoice(s) === 'under') {

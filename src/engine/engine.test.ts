@@ -110,7 +110,10 @@ describe('stakes', () => {
     expect(STAKE_OPTIONS.series).toHaveLength(5);
     expect(STAKE_OPTIONS.margin).toHaveLength(5);
     expect(STAKE_OPTIONS.series[4]).toBeGreaterThan(STAKE_OPTIONS.margin[4]);
-    expect(seriesPrize(500)).toBe(1250);
+    expect(seriesPrize(500)).toBe(1000);
+    const z = settleRound(newGame('series', 9, 500), { youScore: 480, botScore: 470, winner: 'you', margin: 10 });
+    expect(z.phase).toBe('gameOver');
+    expect(z.winner).toBe('you');
   });
   it('scales margin payouts with the buy-in', () => {
     const r = { youScore: 500, botScore: 460, winner: 'you' as const, margin: 40 };
@@ -124,13 +127,19 @@ describe('stakes', () => {
 });
 
 describe('match', () => {
-  it('a solitaire match completes with a full set', () => {
+  it('a solitaire match completes and only scores the cards picked', () => {
     for (let seed = 1; seed < 60; seed++) {
       const game = newGame('solitaire', seed);
       game.loadout = { basic: 3, enhanced: 2, baptized: 1, utility: 1 };
       const m = playRandom(startMatch(game), new Rng(seed));
-      expect(m.result!.youScore).toBeGreaterThan(300);
+      expect(m.result!.youScore).toBeGreaterThan(150);
+      expect(m.events.some((e) => e.text.includes('fill an empty'))).toBe(false);
     }
+    const small = newGame('solitaire', 5);
+    small.loadout = { basic: 2, enhanced: 0, baptized: 0, utility: 0 };
+    const m = playRandom(startMatch(small), new Rng(5));
+    expect(m.you.cards.length).toBeLessThanOrEqual(4);
+    expect(m.result!.youScore).toBeLessThan(260);
   });
   it('always lands on the pre-sealed outcome', () => {
     let marginErr = 0;
