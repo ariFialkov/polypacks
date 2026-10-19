@@ -73,9 +73,11 @@ src/ui/store.ts        controller + persisted snapshot (wallet, save/resume)
 src/ui/sound.ts        WebAudio synth for taps, flips, tears, rares, wins
 ```
 
-Card illustrations are built from [Game Icons](https://game-icons.net) (CC BY 3.0) plus custom
-SVG shapes, rendered as layered neon sprites in one colour: a pale neon fill with the category's glow,
-with cut-outs in the backdrop tone as the only second tone. Display font is Rajdhani (OFL) bundled through
+Card illustrations are pre-made vector icons rendered as neon sprites in one colour: a pale neon
+fill with the category's glow, with cut-outs in the backdrop tone as the only second tone. Icons come
+from [Game Icons](https://game-icons.net) (CC BY 3.0), [Font Awesome Free](https://fontawesome.com)
+(CC BY 4.0) and [Phosphor](https://phosphoricons.com) (MIT), all via `react-icons`; a handful of cards
+use a custom SVG composition. Display font is Rajdhani (OFL) bundled through
 `@fontsource`.
 
 ### Tiers
