@@ -15,6 +15,8 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      // .json rather than .webmanifest: some hosts only accept common file types
+      manifestFilename: 'manifest.json',
       includeAssets: ['icon.svg', 'apple-touch-icon.png'],
       manifest: {
         name: 'Polypacks',
