@@ -1,5 +1,4 @@
 import { findCombos } from '../data/combos';
-import { effectWorth } from '../data/cards';
 import type { CardInst, Combo, MainCategory } from './types';
 
 export interface SlotDef {
@@ -40,65 +39,55 @@ export interface Deck {
   potential: number;
 }
 
-export function placeMult(place: CardInst | null | undefined, cat: string): number {
-  if (!place || !place.def.mods) return 1;
-  return (place.def.mods as Record<string, number | undefined>)[cat] ?? 1;
-}
-
-/** Estimated value of a set of cards (best place chosen), including combos. */
+/** Value of a set of cards: ratings plus combo bonuses. */
 export function setPotential(cards: CardInst[]): number {
-  const places = cards.filter((c) => c.def.cat === 'places');
-  const others = cards.filter((c) => c.def.cat !== 'places');
-  const comboBonus = findCombos(cards.map((c) => c.def.id)).reduce((s, c) => s + c.bonus, 0);
-  const evalWith = (place: CardInst | null) => {
-    let total = place ? place.def.rating : 0;
-    for (const c of others) {
-      const base = c.def.rating + (c.def.cat === 'happenings' ? effectWorth(c.def.effect) : 0);
-      total += Math.round(base * placeMult(place, c.def.cat));
-    }
-    // a second place is worth a little as a backup
-    for (const p of places) if (p !== place) total += Math.round(p.def.rating * 0.35);
-    return total + comboBonus;
-  };
-  if (places.length === 0) return evalWith(null);
-  return Math.max(...places.map((p) => evalWith(p)));
-}
-
-/** Can every card in `subset` be matched to a distinct compatible slot? (augmenting paths) */
-function canAssign(subset: CardInst[], slots: SlotDef[]): number[] | null {
-  const match: number[] = new Array(slots.length).fill(-1);
-  const tryAssign = (ci: number, seen: boolean[]): boolean => {
-    for (let si = 0; si < slots.length; si++) {
-      if (seen[si] || !slots[si].accepts.includes(subset[ci].def.cat as MainCategory)) continue;
-      seen[si] = true;
-      if (match[si] === -1 || tryAssign(match[si], seen)) {
-        match[si] = ci;
-        return true;
-      }
-    }
-    return false;
-  };
-  for (let ci = 0; ci < subset.length; ci++) {
-    if (!tryAssign(ci, new Array(slots.length).fill(false))) return null;
-  }
-  return match;
+  let total = 0;
+  for (const c of cards) total += c.def.rating;
+  for (const c of findCombos(cards.map((x) => x.def.id))) total += c.bonus;
+  return total;
 }
 
 function bestSubset(cards: CardInst[], slots: SlotDef[]): { assign: number[]; chosen: CardInst[] } {
-  // Group cards by category and iterate subsets; cards count is small (<= 14).
-  const n = cards.length;
-  let best: { assign: number[]; chosen: CardInst[]; score: number } | null = null;
-  const total = 1 << n;
-  for (let mask = total - 1; mask >= 0; mask--) {
-    const chosen: CardInst[] = [];
-    for (let i = 0; i < n; i++) if (mask & (1 << i)) chosen.push(cards[i]);
-    if (chosen.length > slots.length) continue;
-    const assign = canAssign(chosen, slots);
-    if (!assign) continue;
-    const score = setPotential(chosen);
-    if (!best || score > best.score || (score === best.score && chosen.length > best.chosen.length)) best = { assign, chosen, score };
+  // Greedy: highest ratings first into the most specific free slot, then one-swap improvement so
+  // a lower card that completes a combo can still make the cut.
+  const order = cards.map((_c, i) => i).sort((a, b) => cards[b].def.rating - cards[a].def.rating);
+  const assign: number[] = new Array(slots.length).fill(-1);
+  const slotOrder = slots.map((_sl, i) => i).sort((a, b) => slots[a].accepts.length - slots[b].accepts.length);
+  for (const ci of order) {
+    const cat = cards[ci].def.cat as MainCategory;
+    const si = slotOrder.find((i) => assign[i] === -1 && slots[i].accepts.includes(cat));
+    if (si !== undefined) assign[si] = ci;
   }
-  return best ?? { assign: new Array(slots.length).fill(-1), chosen: [] };
+  const scoreOf = (a: number[]) => setPotential(a.filter((x) => x >= 0).map((x) => cards[x]));
+  let best = scoreOf(assign);
+  let improved = true;
+  let guard = 0;
+  while (improved && guard++ < 6) {
+    improved = false;
+    const used = new Set(assign.filter((x) => x >= 0));
+    for (let ci = 0; ci < cards.length; ci++) {
+      if (used.has(ci)) continue;
+      const cat = cards[ci].def.cat as MainCategory;
+      for (let si = 0; si < slots.length; si++) {
+        if (!slots[si].accepts.includes(cat)) continue;
+        const prev = assign[si];
+        assign[si] = ci;
+        const sc = scoreOf(assign);
+        if (sc > best) {
+          best = sc;
+          improved = true;
+          used.delete(prev);
+          used.add(ci);
+          break;
+        }
+        assign[si] = prev;
+      }
+      if (improved) break;
+    }
+  }
+  const chosen = assign.filter((x) => x >= 0).map((x) => cards[x]);
+  const remap = assign.map((x) => (x >= 0 ? chosen.indexOf(cards[x]) : -1));
+  return { assign: remap, chosen };
 }
 
 export function slotsFor(unlocked: number): SlotDef[] {

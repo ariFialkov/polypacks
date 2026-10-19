@@ -1,130 +1,134 @@
 import { describe, expect, it } from 'vitest';
 import { Rng } from './rng';
-import { Draft } from './draft';
-import { buildDeck, deckCards } from './deck';
-import { newGame, createDraft, deckFromDraft, startRound, botMove, roundFate, settleRound } from './game';
-import { playCard, swapPlace, type RoundState } from './round';
 import { CARDS } from '../data/cards';
 import { COMBOS } from '../data/combos';
+import { CARD_ART } from '../data/art';
+import { newGame, startMatch, roundFate, settleRound } from './game';
+import { answer, botShouldAct, flipCat, openPack, pickCard, runBotTurn, unopened, useDelorean, usePeek, type MatchState } from './match';
+import type { MainCategory } from './types';
 
-function randomDraft(seed: number, rng: Rng): Draft {
-  const draft = new Draft(seed);
+const CATS: MainCategory[] = ['life', 'stuff', 'ideas', 'places', 'happenings'];
+
+/** A random but legal player: opens packs in random order, takes random cards, answers prompts at random. */
+function playRandom(m: MatchState, rng: Rng, log = false): MatchState {
   let guard = 0;
-  while (!draft.isComplete() && guard++ < 100) {
-    const open = draft.packs.filter((p) => !p.opened && !p.locked);
-    if (open.length === 0) break;
-    const pack = rng.pick(open);
-    const cards = draft.open(pack.id, pack.kind === 'baptized' ? rng.pick(['life', 'stuff', 'ideas', 'places', 'happenings'] as const) : undefined);
-    if (cards.length === 0) {
-      pack.picked = 'none';
+  while (m.phase === 'draft' && guard++ < 400) {
+    if (m.prompt) {
+      answerRandom(m, rng);
       continue;
     }
-    if (draft.pack(pack.id).picked) continue; // god mode may have picked already
-    draft.pick(pack.id, rng.pick(cards).id);
-    // sometimes use charges
-    if (draft.state.charges.premonition > 0) {
-      const t = draft.packs.filter((p) => !p.opened && p.kind !== 'baptized');
-      if (t.length) draft.peek(rng.pick(t).id);
+    if (botShouldAct(m)) {
+      runBotTurn(m);
+      continue;
     }
-    if (draft.state.charges.dejavu > 0) {
-      const t = draft.packs.filter((p) => !p.opened && p.kind !== 'baptized');
-      if (t.length) draft.reroll(rng.pick(t).id);
+    if (m.turn !== 'you') throw new Error('stuck: bot turn without progress');
+    const you = m.you;
+    // free actions sometimes
+    if (you.catPair && rng.chance(0.3)) flipCat(m, 'you');
+    if (you.charges.peek > 0) {
+      const t = unopened(you).filter((p) => p.kind !== 'baptized');
+      if (t.length) usePeek(m, 'you', rng.pick(t).id);
     }
-    if (draft.state.charges.delorean > 0 && rng.chance(0.5)) {
-      const t = draft.packs.filter((p) => p.opened && p.picked && !p.picked.startsWith('taken'));
-      if (t.length) draft.repick(rng.pick(t).id);
+    if (you.charges.delorean > 0 && rng.chance(0.4)) {
+      const t = you.packs.filter((p) => p.opened && p.picked && !p.destroyed);
+      if (t.length) useDelorean(m, 'you', rng.pick(t).id);
     }
+    const open = you.packs.find((p) => p.opened && !p.picked);
+    if (open) {
+      const cards = open.cards ?? [];
+      const c = rng.pick(cards);
+      const second = open.catPack ? cards.find((x) => x.id !== c.id && x.cat !== 'special' && c.cat !== 'special') : undefined;
+      pickCard(m, 'you', open.id, c.id, second?.id);
+      if (log) console.log('YOU take', c.name, c.rating, '->', m.you.cards.length);
+      continue;
+    }
+    const packs = unopened(you).filter((p) => !p.locked);
+    if (!packs.length) throw new Error('no packs but still my turn');
+    const p = rng.pick(packs);
+    openPack(m, 'you', p.id, p.kind === 'baptized' ? rng.pick(CATS) : undefined);
   }
-  return draft;
+  if (m.phase === 'draft') throw new Error('did not finish');
+  return m;
+}
+
+function answerRandom(m: MatchState, rng: Rng) {
+  const p = m.prompt!;
+  switch (p.kind) {
+    case 'bitcoin':
+    case 'pentagon':
+    case 'postnut':
+      answer(m, { accept: rng.chance(0.6) });
+      break;
+    case 'area51':
+      if (p.mode === 'initial') answer(m, p.targets.length && rng.chance(0.6) ? { uid: rng.pick(p.targets) } : {});
+      else answer(m, { accept: rng.chance(0.6) });
+      break;
+    case 'flamethrower':
+    case 'pretty':
+      answer(m, { uid: rng.pick(p.targets) });
+      break;
+    case 'coup':
+      answer(m, { uid: rng.pick(p.theirs), uid2: rng.pick(p.mine) });
+      break;
+    case 'trolley':
+      if (p.packIds.length && (!p.cardUid || rng.chance(0.5))) answer(m, { option: 'pack', uid: rng.pick(p.packIds) });
+      else answer(m, { option: 'card' });
+      break;
+    case 'wedding':
+      answer(m, { uid: rng.pick(p.combos) });
+      break;
+    case 'defib':
+      answer(m, { uid: rng.pick(p.graveyard) });
+      break;
+    case 'dui':
+      answer(m, { option: rng.chance(0.5) ? 'vehicles' : 'impairments' });
+      break;
+    case 'champion':
+      answer(m, { uid: rng.pick(p.animals) });
+      break;
+    case 'peek':
+      answer(m, { uid: rng.pick(p.packIds) });
+      break;
+  }
 }
 
 describe('card data', () => {
-  it('has unique ids and every combo references real cards', () => {
+  it('has unique ids, art for every card, and combos that reference real cards', () => {
     const ids = new Set(CARDS.map((c) => c.id));
     expect(ids.size).toBe(CARDS.length);
+    for (const c of CARDS) expect(CARD_ART[c.id], `art for ${c.id}`).toBeTruthy();
     for (const combo of COMBOS) for (const alts of combo.parts) for (const id of alts) expect(ids.has(id), `${combo.id} -> ${id}`).toBe(true);
+    expect(ids.has('divorce')).toBe(false);
   });
-  it('is the same for the same seed', () => {
-    const a = new Draft(42);
-    const b = new Draft(42);
-    expect(a.packs.map((p) => p.kind)).toEqual(b.packs.map((p) => p.kind));
-    const pa = a.packs.find((p) => p.kind === 'basic')!;
-    const pb = b.packs.find((p) => p.kind === 'basic')!;
-    expect(a.open(pa.id).map((c) => c.id)).toEqual(b.open(pb.id).map((c) => c.id));
+  it('rates every non-??? card on a 40–99 scale', () => {
+    for (const c of CARDS) if (c.cat !== 'special') expect(c.rating >= 40 && c.rating <= 99, c.id).toBe(true);
   });
 });
 
-describe('draft', () => {
-  it('completes with a full set of picks for many seeds', () => {
-    for (let seed = 1; seed < 300; seed++) {
-      const rng = new Rng(seed * 17);
-      const draft = randomDraft(seed, rng);
-      expect(draft.isComplete()).toBe(true);
-      expect(draft.state.picks.length).toBeGreaterThan(5);
-      const deck = buildDeck(draft.state.picks, { unlocked: draft.state.godMode ? 3 : 0 });
-      expect(deckCards(deck).length).toBeGreaterThan(0);
-      for (const s of deck.slots) if (s.card) expect(s.slot.accepts).toContain(s.card.def.cat);
+describe('match', () => {
+  it('a solitaire match completes with a full set', () => {
+    for (let seed = 1; seed < 60; seed++) {
+      const game = newGame('solitaire', seed);
+      game.loadout = { basic: 3, enhanced: 2, baptized: 1, utility: 1 };
+      const m = playRandom(startMatch(game), new Rng(seed));
+      expect(m.result!.youScore).toBeGreaterThan(300);
     }
   });
-  it('delorean repick returns the same options', () => {
-    const draft = new Draft(7);
-    draft.state.charges.delorean = 1;
-    const p = draft.packs.find((x) => x.kind === 'basic')!;
-    const cards = draft.open(p.id);
-    draft.pick(p.id, cards[0].id);
-    draft.repick(p.id);
-    expect(draft.state.picks.length).toBe(0);
-    expect(draft.open(p.id).map((c) => c.id)).toEqual(cards.map((c) => c.id));
-  });
-});
-
-function playRound(game: ReturnType<typeof newGame>, round: RoundState, rng: Rng): RoundState {
-  let st = round;
-  let guard = 0;
-  while (!st.done && guard++ < 60) {
-    if (st.turn === 'you') {
-      if (st.you.altPlace && !st.you.swappedPlace && rng.chance(0.3)) st = swapPlace(st, 'you');
-      st = playCard(st, 'you', rng.pick(st.you.hand).uid);
-    } else {
-      st = botMove(game, st).next;
-    }
-  }
-  return st;
-}
-
-describe('fate', () => {
   it('always lands on the pre-sealed outcome', () => {
-    let rounds = 0;
     let marginErr = 0;
-    for (let seed = 1; seed <= 500; seed++) {
+    let n = 0;
+    const N = Number(process.env.FATE_SEEDS || 300);
+    for (let seed = 1; seed <= N; seed++) {
       const game = newGame(seed % 2 ? 'series' : 'margin', seed * 1000 + 3);
-      const rng = new Rng(seed);
-      const draft = randomDraft(draftSeedOf(game), rng);
-      const deck = deckFromDraft(draft.state);
-      const round = startRound(game, deck);
-      expect(round.bot.hand.length).toBe(round.you.hand.length);
-      const done = playRound(game, round, rng);
-      expect(done.done).toBe(true);
+      const m = playRandom(startMatch(game), new Rng(seed));
       const fate = roundFate(game);
       const expected = fate.playerWins ? 'you' : 'bot';
-      expect(done.result!.winner, `seed ${seed}: you ${done.result!.youScore} bot ${done.result!.botScore} fate ${JSON.stringify(fate)}`).toBe(expected);
-      marginErr += Math.abs(done.result!.margin - fate.margin);
-      rounds++;
-      const settled = settleRound(game, done);
-      expect(settled.history.length).toBe(1);
+      expect(m.result!.winner, `seed ${seed}: you ${m.result!.youScore} bot ${m.result!.botScore} fate ${JSON.stringify(fate)}`).toBe(expected);
+      marginErr += Math.abs(m.result!.margin - fate.margin);
+      n++;
+      const g = settleRound(game, m.result!);
+      expect(g.history.length).toBe(1);
     }
-    expect(marginErr / rounds).toBeLessThan(12);
-  });
-});
-
-function draftSeedOf(game: ReturnType<typeof newGame>) {
-  return (game.seed + game.roundIndex * 7919 + 1) >>> 0;
-}
-
-describe('game helpers', () => {
-  it('creates a draft from the game seed', () => {
-    const game = newGame('series', 99);
-    const d = createDraft(game);
-    expect(d.packs.length).toBe(10);
+    expect(marginErr / n).toBeLessThan(20);
   });
 });

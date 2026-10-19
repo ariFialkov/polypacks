@@ -1,10 +1,7 @@
 import { useSyncExternalStore } from 'react';
-import { Draft, PACK_PRICES, type DraftState, type PackKind } from '../engine/draft';
-import { clearSlot, placeInSlot, type Deck } from '../engine/deck';
-import { cashOut, createDraft, deckFromDraft, newGame, nextRound, settleRound, solitaireResult, startRound, botMove, type GameState, type Mode, STAKES } from '../engine/game';
-import { playCard, swapPlace, type RoundState } from '../engine/round';
+import { PACK_PRICES, answer, botShouldAct, flipCat, openPack, pickCard, runBotTurn, unopened, useDelorean, usePeek, type Answer, type MatchState, type MinigameOutcome } from '../engine/match';
+import { attachBot, cashOut, newGame, nextRound, settleRound, solitaireResult, startMatch, type GameState, type Mode, STAKES } from '../engine/game';
 import { randomSeed } from '../engine/rng';
-import { MAIN_CATEGORIES } from '../data/cards';
 import type { CardDef, MainCategory } from '../engine/types';
 import { sfx, soundEnabled, setSoundEnabled } from './sound';
 
@@ -20,40 +17,32 @@ export interface OpeningPack {
   mode: 'open' | 'peek';
   revealed: string[];
   stage: 'tear' | 'fan';
-}
-
-export interface BotPack {
-  kind: PackKind;
-  label: string;
-  size: number;
-  category?: MainCategory;
-  opened: boolean;
+  catPack: boolean;
+  divine?: string;
+  firstPick?: string; // Schrödinger: the card chosen to stay up
 }
 
 export interface Snapshot {
   game: GameState | null;
-  draft: DraftState | null;
-  deck: Deck | null;
-  round: RoundState | null;
+  match: MatchState | null;
   wallet: number;
   dealing: boolean;
   opening: OpeningPack | null;
   autoReveal: boolean;
-  botPacks: BotPack[];
-  botSlots: string[]; // slot ids holding a face-down card
   botStatus: string;
+  botBusy: boolean;
   specialFx: CardDef | null;
-  botThinking: boolean;
-  lastBotPlayUid: string | null;
+  minigameShow: MinigameOutcome | null;
+  freshUids: string[]; // cards that just arrived (animate)
   toasts: Toast[];
-  tool: 'premonition' | 'dejavu' | 'delorean' | null;
+  tool: 'delorean' | 'peek' | null;
   highScores: number[];
   sound: boolean;
   menuOpen: boolean;
   version: number;
 }
 
-const SAVE_KEY = 'polypacks.save.v2';
+const SAVE_KEY = 'polypacks.save.v3';
 const SCORES_KEY = 'polypacks.scores.v1';
 const WALLET_KEY = 'polypacks.wallet.v1';
 const AUTO_KEY = 'polypacks.autoreveal';
@@ -61,10 +50,7 @@ export const SERIES_ENTRY = 100;
 export const SERIES_PRIZE = 250;
 export const WALLET_FLOOR = 500;
 
-const ROW1 = ['place', 'event', 'flex'];
-const ROW2 = ['life1', 'life2', 'stuff1', 'stuff2', 'stuff3', 'idea'];
-
-const BOT_LINES = ['is weighing options…', 'picked something. Looked smug.', 'is reading card text very slowly…', 'is building a combo (allegedly)…', 'tapped a pack three times.', 'is choosing a category…', 'hesitated. Then committed.', 'is not telling.'];
+const BOT_LINES = ['is weighing options…', 'is reading card text very slowly…', 'is building a combo (allegedly)…', 'hesitated. Then committed.', 'is not telling.', 'is eyeing your set…'];
 
 function readNum(key: string, def: number): number {
   try {
@@ -84,10 +70,11 @@ function writeNum(key: string, v: number) {
 
 class Controller {
   private snap: Snapshot;
-  private draftObj: Draft | null = null;
   private listeners = new Set<() => void>();
   private toastId = 0;
   private timers: number[] = [];
+  private shownMinigames = 0;
+  private shownEvents = 0;
 
   constructor() {
     let auto = false;
@@ -98,19 +85,16 @@ class Controller {
     }
     this.snap = {
       game: null,
-      draft: null,
-      deck: null,
-      round: null,
+      match: null,
       wallet: readNum(WALLET_KEY, 1000),
       dealing: false,
       opening: null,
       autoReveal: auto,
-      botPacks: [],
-      botSlots: [],
       botStatus: '',
+      botBusy: false,
       specialFx: null,
-      botThinking: false,
-      lastBotPlayUid: null,
+      minigameShow: null,
+      freshUids: [],
       toasts: [],
       tool: null,
       highScores: loadScores(),
@@ -129,9 +113,14 @@ class Controller {
   getSnapshot = () => this.snap;
 
   private commit(patch: Partial<Snapshot>) {
-    this.snap = { ...this.snap, ...patch, draft: this.draftObj ? this.draftObj.state : patch.draft === undefined ? this.snap.draft : patch.draft, version: this.snap.version + 1 };
+    this.snap = { ...this.snap, ...patch, version: this.snap.version + 1 };
     for (const l of this.listeners) l();
     this.save();
+  }
+  /** The match object is mutated by the engine; bump the snapshot so React sees it. */
+  private touch(patch: Partial<Snapshot> = {}) {
+    const m = this.snap.match;
+    this.commit({ ...patch, match: m ? { ...m } : null });
   }
   private toast(text: string, tone: Toast['tone'] = 'info') {
     const id = ++this.toastId;
@@ -140,7 +129,7 @@ class Controller {
     this.later(() => {
       this.snap = { ...this.snap, toasts: this.snap.toasts.filter((t) => t.id !== id), version: this.snap.version + 1 };
       for (const l of this.listeners) l();
-    }, 3000);
+    }, 3200);
   }
   private later(fn: () => void, ms: number) {
     this.timers.push(window.setTimeout(fn, ms));
@@ -156,12 +145,13 @@ class Controller {
 
   private save() {
     try {
-      const { game, deck, round, botPacks, botSlots } = this.snap;
+      const { game, match } = this.snap;
       if (!game) {
         localStorage.removeItem(SAVE_KEY);
         return;
       }
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ game, deck, round, botPacks, botSlots, draft: this.draftObj ? this.draftObj.snapshot() : null }));
+      const m = match ? { ...match, botDecisions: null } : null;
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ game, match: m, shownMinigames: this.shownMinigames, shownEvents: this.shownEvents }));
     } catch {
       /* ignore */
     }
@@ -172,10 +162,11 @@ class Controller {
       if (!raw) return;
       const data = JSON.parse(raw);
       if (!data.game) return;
-      this.draftObj = data.draft ? Draft.restore(data.draft) : null;
-      const round: RoundState | null = data.round ?? null;
-      this.snap = { ...this.snap, game: data.game, deck: data.deck ?? null, round, draft: this.draftObj ? this.draftObj.state : null, botPacks: data.botPacks ?? [], botSlots: data.botSlots ?? [] };
-      if (round && !round.done && round.turn === 'bot') this.later(() => this.runBot(), 800);
+      const match: MatchState | null = data.match ? attachBot(data.game, data.match) : null;
+      this.shownMinigames = data.shownMinigames ?? match?.minigames.length ?? 0;
+      this.shownEvents = data.shownEvents ?? match?.events.length ?? 0;
+      this.snap = { ...this.snap, game: data.game, match };
+      if (match) this.later(() => this.afterEngine(), 600);
     } catch {
       /* ignore */
     }
@@ -204,8 +195,7 @@ class Controller {
 
   home() {
     this.clearTimers();
-    this.draftObj = null;
-    this.commit({ game: null, draft: null, deck: null, round: null, opening: null, botThinking: false, botPacks: [], botSlots: [], tool: null, lastBotPlayUid: null, dealing: false, specialFx: null, menuOpen: false });
+    this.commit({ game: null, match: null, opening: null, botBusy: false, tool: null, dealing: false, specialFx: null, menuOpen: false, minigameShow: null, freshUids: [] });
   }
 
   start(mode: Mode) {
@@ -220,10 +210,9 @@ class Controller {
     if (mode === 'margin') wallet -= STAKES.margin;
     writeNum(WALLET_KEY, wallet);
     const game = newGame(mode, randomSeed());
-    this.draftObj = null;
     sfx.cash();
-    this.commit({ game, wallet, draft: null, deck: null, round: null, opening: null, botThinking: false, botPacks: [], botSlots: [], tool: null, lastBotPlayUid: null, menuOpen: false, specialFx: null });
-    if (mode !== 'solitaire') this.beginDraft();
+    this.commit({ game, wallet, match: null, opening: null, botBusy: false, tool: null, menuOpen: false, specialFx: null, minigameShow: null, freshUids: [] });
+    if (mode !== 'solitaire') this.beginMatch();
   }
 
   // ───────────── solitaire shop ─────────────
@@ -243,7 +232,7 @@ class Controller {
     this.commit({ game: { ...game, loadout, spent: cost } });
   }
 
-  beginDraft() {
+  beginMatch() {
     const game = this.snap.game;
     if (!game) return;
     if (game.mode === 'solitaire') {
@@ -253,26 +242,71 @@ class Controller {
       }
       this.setWallet(this.snap.wallet - game.spent);
     }
-    this.draftObj = createDraft(game);
-    const packs = this.draftObj.packs;
-    const botPacks: BotPack[] =
-      game.mode === 'solitaire'
-        ? []
-        : packs.map((p) => ({ kind: p.kind, label: p.label, size: p.size, opened: false, category: p.kind === 'category' ? (MAIN_CATEGORIES[Math.floor(Math.random() * 5)] as MainCategory) : undefined }));
-    for (const bp of botPacks) if (bp.category) bp.label = bp.category[0].toUpperCase() + bp.category.slice(1);
-    this.commit({ game: { ...game, phase: 'draft' }, deck: deckFromDraft(this.draftObj.state), round: null, opening: null, botPacks, botSlots: [], botStatus: 'is shuffling…', tool: null, dealing: true, lastBotPlayUid: null });
-    for (let i = 0; i < packs.length; i++) this.later(() => sfx.deal(), 120 + i * 90);
-    this.later(() => this.commit({ dealing: false, botStatus: botPacks.length ? 'is eyeing the packs…' : '' }), 1900);
+    const match = startMatch(game);
+    this.shownMinigames = 0;
+    this.shownEvents = match.events.length;
+    this.commit({ game: { ...game, phase: 'match' }, match, opening: null, botStatus: game.mode === 'solitaire' ? '' : 'is shuffling…', tool: null, dealing: true, freshUids: [] });
+    for (let i = 0; i < match.you.packs.length; i++) this.later(() => sfx.deal(), 120 + i * 90);
+    this.later(() => this.commit({ dealing: false, botStatus: game.mode === 'solitaire' ? '' : 'is eyeing the packs…' }), 1900);
   }
 
-  // ───────────── draft ─────────────
-  private get draft(): Draft {
-    if (!this.draftObj) throw new Error('no draft');
-    return this.draftObj;
+  // ───────────── after every engine call ─────────────
+  /** Surface new events, minigames, prompts; schedule the opponent; settle when done. */
+  private afterEngine() {
+    const m = this.snap.match;
+    const game = this.snap.game;
+    if (!m || !game) return;
+    // fresh cards: anything acquired in the new events
+    const newEvents = m.events.slice(this.shownEvents);
+    this.shownEvents = m.events.length;
+    for (const e of newEvents) if (e.kind === 'ability' || e.kind === 'minigame') this.toast(e.text, e.side === 'you' ? 'good' : 'info');
+    // minigames queue
+    if (m.minigames.length > this.shownMinigames && !this.snap.minigameShow) {
+      const mg = m.minigames[this.shownMinigames];
+      this.shownMinigames++;
+      sfx.special();
+      this.touch({ minigameShow: mg });
+      return; // the bot waits for the ack
+    }
+    if (m.phase === 'done') {
+      this.later(() => this.settle(), 900);
+      this.touch();
+      return;
+    }
+    if (botShouldAct(m) && !this.snap.minigameShow && !this.snap.opening) this.scheduleBot();
+    else this.touch();
   }
-  private syncDeck() {
-    if (!this.draftObj) return;
-    this.commit({ deck: deckFromDraft(this.draftObj.state) });
+
+  private scheduleBot() {
+    const m = this.snap.match;
+    if (!m || this.snap.botBusy) return;
+    const ms = 900 + Math.random() * 1400;
+    this.touch({ botBusy: true, botStatus: BOT_LINES[Math.floor(Math.random() * BOT_LINES.length)] });
+    this.later(() => {
+      const mm = this.snap.match;
+      if (!mm || !botShouldAct(mm)) {
+        this.touch({ botBusy: false });
+        return;
+      }
+      const before = new Set(mm.bot.cards.map((c) => c.uid));
+      runBotTurn(mm);
+      const fresh = mm.bot.cards.filter((c) => !before.has(c.uid)).map((c) => c.uid);
+      sfx.flip();
+      this.touch({ botBusy: false, botStatus: 'picked.', freshUids: fresh });
+      this.afterEngine();
+    }, ms);
+  }
+
+  ackMinigame() {
+    sfx.tap();
+    this.commit({ minigameShow: null });
+    this.afterEngine();
+  }
+
+  // ───────────── player actions ─────────────
+  private get match(): MatchState {
+    if (!this.snap.match) throw new Error('no match');
+    return this.snap.match;
   }
 
   setTool(tool: Snapshot['tool']) {
@@ -282,50 +316,54 @@ class Controller {
 
   tapPack(packId: string, category?: MainCategory) {
     if (this.snap.dealing) return;
-    const d = this.draft;
-    const pack = d.pack(packId);
-    const tool = this.snap.tool;
+    const m = this.match;
+    const pack = m.you.packs.find((p) => p.id === packId);
+    if (!pack) return;
     try {
-      if (tool === 'premonition') {
-        const cards = d.peek(packId);
+      if (m.prompt?.kind === 'peek' && m.promptFor === 'you') {
+        answer(m, { uid: packId });
         sfx.special();
-        this.commit({ opening: { packId, cards, mode: 'peek', revealed: cards.map((c) => c.id), stage: 'fan' }, tool: null });
+        this.showPeek(packId);
+        this.afterEngine();
         return;
       }
-      if (tool === 'dejavu') {
-        d.reroll(packId);
-        sfx.flip();
-        this.toast('Déjà vu. The pack feels different now.');
+      if (this.snap.tool === 'peek') {
+        usePeek(m, 'you', packId);
+        sfx.special();
         this.commit({ tool: null });
+        this.showPeek(packId);
+        this.touch();
         return;
       }
-      if (tool === 'delorean') {
-        d.repick(packId);
+      if (this.snap.tool === 'delorean') {
+        useDelorean(m, 'you', packId);
         sfx.special();
         this.toast('88 mph. Back to this pack.');
-        this.commit({ tool: null });
-        this.syncDeck();
+        this.touch({ tool: null });
         return;
       }
-      if (pack.opened) {
-        if (pack.cards && !pack.picked) this.commit({ opening: { packId, cards: pack.cards, mode: 'open', revealed: pack.cards.map((c) => c.id), stage: 'fan' } });
+      if (pack.opened && !pack.picked && pack.cards) {
+        this.commit({ opening: { packId, cards: pack.cards, mode: 'open', revealed: pack.cards.map((c) => c.id), stage: 'fan', catPack: !!pack.catPack, divine: pack.divine } });
         return;
       }
+      if (pack.opened) return;
       if (pack.locked) {
         this.toast('Opens after every other pack.', 'bad');
         return;
       }
-      if (pack.kind === 'baptized' && !pack.category && !category) {
-        sfx.tap();
-        this.commit({ opening: { packId, cards: [], mode: 'open', revealed: [], stage: 'fan' } });
+      if (m.turn !== 'you' || m.prompt || this.snap.botBusy) {
+        this.toast('Not your turn yet.', 'bad');
         return;
       }
-      const before = d.state.log.length;
-      const cards = d.open(packId, category);
-      for (const line of d.state.log.slice(before)) this.toast(line);
+      if (pack.kind === 'baptized' && !pack.category && !category) {
+        sfx.tap();
+        this.commit({ opening: { packId, cards: [], mode: 'open', revealed: [], stage: 'fan', catPack: false } });
+        return;
+      }
+      const cards = openPack(m, 'you', packId, category);
       sfx.tear();
-      this.commit({ opening: { packId, cards, mode: 'open', revealed: [], stage: 'tear' } });
-      this.syncDeck();
+      const p = m.you.packs.find((x) => x.id === packId)!;
+      this.touch({ opening: { packId, cards, mode: 'open', revealed: [], stage: 'tear', catPack: !!p.catPack, divine: p.divine } });
       this.later(() => {
         const o = this.snap.opening;
         if (o && o.packId === packId) {
@@ -339,6 +377,11 @@ class Controller {
     }
   }
 
+  private showPeek(packId: string) {
+    const pack = this.match.you.packs.find((p) => p.id === packId);
+    if (pack?.cards) this.commit({ opening: { packId, cards: pack.cards, mode: 'peek', revealed: pack.cards.map((c) => c.id), stage: 'fan', catPack: false } });
+  }
+
   reveal(cardId: string) {
     const o = this.snap.opening;
     if (!o || o.stage !== 'fan' || o.revealed.includes(cardId)) return;
@@ -346,8 +389,8 @@ class Controller {
     if (!def) return;
     sfx.flip();
     if (def.cat === 'special') this.later(() => sfx.special(), 250);
-    else if (def.rarity === 4) this.later(() => sfx.legendary(), 250);
-    else if (def.rarity === 3) this.later(() => sfx.rare(), 250);
+    else if (def.rarity >= 5) this.later(() => sfx.legendary(), 250);
+    else if (def.rarity >= 3) this.later(() => sfx.rare(), 250);
     this.commit({ opening: { ...o, revealed: [...o.revealed, cardId] } });
   }
 
@@ -365,168 +408,82 @@ class Controller {
 
   closeOpening() {
     this.commit({ opening: null });
+    this.afterEngine();
   }
 
-  pickCard(packId: string, cardId: string) {
-    const d = this.draft;
+  /** Take a card from the open pack. For a Schrödinger pack the first tap sets the face-up card, the second the one underneath. */
+  pickCard(cardId: string) {
+    const o = this.snap.opening;
+    const m = this.match;
+    if (!o || o.mode !== 'open') return;
+    const def = o.cards.find((c) => c.id === cardId);
+    if (!def) return;
+    if (o.catPack && def.cat !== 'special') {
+      if (!o.firstPick) {
+        sfx.tap();
+        this.commit({ opening: { ...o, firstPick: cardId } });
+        return;
+      }
+      if (o.firstPick === cardId) return;
+    }
     try {
-      const before = d.state.log.length;
-      const def = d.pack(packId).cards?.find((c) => c.id === cardId);
-      d.pick(packId, cardId);
-      for (const line of d.state.log.slice(before)) this.toast(line, 'good');
-      if (def?.cat === 'special') {
+      const before = new Set(m.you.cards.map((c) => c.uid));
+      pickCard(m, 'you', o.packId, o.catPack && o.firstPick ? o.firstPick : cardId, o.catPack && o.firstPick ? cardId : undefined);
+      const fresh = m.you.cards.filter((c) => !before.has(c.uid)).map((c) => c.uid);
+      if (def.cat === 'special') {
         sfx.special();
-        this.commit({ opening: null, specialFx: def });
+        this.touch({ opening: null, specialFx: def, freshUids: fresh });
         this.later(() => this.commit({ specialFx: null }), 2300);
       } else {
         sfx.pick();
-        this.commit({ opening: null });
+        this.touch({ opening: null, freshUids: fresh });
       }
-      this.syncDeck();
-      this.botOpensOne();
-      if (d.isComplete()) this.later(() => this.finishDraft(), 600);
+      this.afterEngine();
     } catch (e) {
       this.toast((e as Error).message, 'bad');
     }
   }
 
-  /** The opponent keeps pace: one of their packs goes shortly after one of yours. */
-  private botOpensOne() {
-    const left = this.snap.botPacks.filter((p) => !p.opened);
-    if (left.length === 0) return;
-    const delay = 500 + Math.random() * 1500;
-    this.later(() => {
-      const packs = this.snap.botPacks.map((p) => ({ ...p }));
-      const candidates = packs.filter((p) => !p.opened && p.kind !== 'redemption');
-      const pool = candidates.length ? candidates : packs.filter((p) => !p.opened);
-      if (!pool.length) return;
-      const pick = pool[Math.floor(Math.random() * pool.length)];
-      pick.opened = true;
-      const empties = [...ROW1, ...ROW2].filter((s) => !this.snap.botSlots.includes(s));
-      const botSlots = [...this.snap.botSlots];
-      if (empties.length) botSlots.push(empties[Math.floor(Math.random() * empties.length)]);
-      sfx.deal();
-      const allDone = packs.every((p) => p.opened);
-      this.commit({ botPacks: packs, botSlots, botStatus: allDone ? 'is done. Waiting on you.' : BOT_LINES[Math.floor(Math.random() * BOT_LINES.length)] });
-    }, delay);
+  answer(a: Answer) {
+    const m = this.match;
+    if (!m.prompt) return;
+    try {
+      sfx.tap();
+      answer(m, a);
+      this.touch();
+      this.afterEngine();
+    } catch (e) {
+      this.toast((e as Error).message, 'bad');
+    }
   }
 
-  finishDraft() {
+  flipCat() {
+    const m = this.match;
+    if (m.turn !== 'you' || m.prompt || this.snap.botBusy) return;
+    sfx.flip();
+    flipCat(m, 'you');
+    this.touch();
+    this.afterEngine();
+  }
+
+  // ───────────── end of match ─────────────
+  private settle() {
     const game = this.snap.game;
-    if (!game || !this.draftObj) return;
-    const deck = deckFromDraft(this.draftObj.state);
+    const m = this.snap.match;
+    if (!game || !m || !m.result) return;
     if (game.mode === 'solitaire') {
-      const g = solitaireResult(game, deck);
+      const g = solitaireResult(game, m.result.youScore);
       const profit = g.you.money - g.spent;
       const scores = [...this.snap.highScores, profit].sort((a, b) => b - a).slice(0, 10);
       saveScores(scores);
-      this.draftObj = null;
       if (profit >= 0) sfx.win();
       else sfx.lose();
       this.setWallet(this.snap.wallet + g.you.money);
-      this.commit({ game: g, deck, draft: null, highScores: scores });
+      this.commit({ game: g, highScores: scores });
       return;
     }
-    // bot finishes any packs it has left
-    const packs = this.snap.botPacks.map((p) => ({ ...p, opened: true }));
-    this.commit({ game: { ...game, phase: 'deck', deck }, deck, botPacks: packs, botStatus: 'is ready.' });
-  }
-
-  // ───────────── deck ─────────────
-  placeInSlot(slotId: string, uid: string) {
-    const deck = this.snap.deck;
-    if (!deck) return;
-    try {
-      sfx.pick();
-      this.commit({ deck: placeInSlot(deck, slotId, uid) });
-    } catch (e) {
-      this.toast((e as Error).message, 'bad');
-    }
-  }
-  clearSlot(slotId: string) {
-    const deck = this.snap.deck;
-    if (!deck) return;
-    sfx.tap();
-    this.commit({ deck: clearSlot(deck, slotId) });
-  }
-
-  lockDeck() {
-    const game = this.snap.game;
-    const deck = this.snap.deck;
-    if (!game || !deck) return;
-    const round = startRound(game, deck);
-    // the opponent's concealed cards mirror your filled slots
-    const botSlots = deck.slots.filter((s) => s.card && s.card.def.cat !== 'places').map((s) => s.slot.id);
-    if (!botSlots.includes('flex')) botSlots.push('flex'); // their concealed second place
-    this.draftObj = null;
-    sfx.deal();
-    this.commit({ game: { ...game, phase: 'play', deck }, round, draft: null, botSlots, botStatus: '', lastBotPlayUid: null });
-  }
-
-  // ───────────── play ─────────────
-  play(uid: string) {
-    const round = this.snap.round;
-    if (!round || round.done || round.turn !== 'you' || this.snap.botThinking) return;
-    try {
-      const card = round.you.hand.find((c) => c.uid === uid);
-      const next = playCard(round, 'you', uid);
-      if (card?.def.cat === 'happenings') {
-        const k = card.def.effect?.kind;
-        if (k === 'hitOpp' || k === 'fieldShake' || k === 'halveOppTop' || k === 'steal') sfx.hit();
-        else sfx.boost();
-      } else sfx.play();
-      this.commit({ round: next, lastBotPlayUid: null });
-      if (next.done) this.later(() => this.settle(), 1300);
-      else if (next.turn === 'bot') this.runBot();
-    } catch (e) {
-      this.toast((e as Error).message, 'bad');
-    }
-  }
-
-  swapPlace() {
-    const round = this.snap.round;
-    if (!round || round.done || round.turn !== 'you' || this.snap.botThinking) return;
-    try {
-      sfx.flip();
-      this.commit({ round: swapPlace(round, 'you') });
-    } catch (e) {
-      this.toast((e as Error).message, 'bad');
-    }
-  }
-
-  private runBot() {
-    const game = this.snap.game;
-    const round = this.snap.round;
-    if (!game || !round || round.done || round.turn !== 'bot') return;
-    this.commit({ botThinking: true });
-    const { choice, next } = botMove(game, round);
-    this.later(() => {
-      // a face-down card leaves a slot that could have held it
-      const cat = choice.def.cat;
-      const prefer = cat === 'life' ? ['life1', 'life2', 'sp1', 'sp3'] : cat === 'stuff' ? ['stuff1', 'stuff2', 'stuff3', 'sp1', 'sp3'] : cat === 'ideas' ? ['idea', 'sp2', 'sp3'] : ['event', 'flex', 'sp2', 'sp3'];
-      const slots = [...this.snap.botSlots];
-      if (choice.swapTo) {
-        const fi = slots.indexOf('flex');
-        if (fi >= 0) slots.splice(fi, 1);
-        this.toast(`${game.bot.name} moves the scene to ${choice.swapTo.name}.`);
-      }
-      const idx = slots.findIndex((s) => prefer.includes(s) && !(s === 'flex' && cat !== 'happenings'));
-      if (idx >= 0) slots.splice(idx, 1);
-      else if (slots.length) slots.pop();
-      sfx.flip();
-      this.commit({ round: next, botThinking: false, lastBotPlayUid: choice.uid, botSlots: slots });
-      if (next.done) this.later(() => this.settle(), 1500);
-      else if (next.turn === 'bot') this.later(() => this.runBot(), 500);
-    }, choice.thinkMs);
-  }
-
-  private settle() {
-    const game = this.snap.game;
-    const round = this.snap.round;
-    if (!game || !round || !round.done) return;
-    const g = settleRound(game, round);
-    const youWon = round.result?.winner === 'you';
-    if (youWon) sfx.win();
+    const g = settleRound(game, m.result);
+    if (m.result.winner === 'you') sfx.win();
     else sfx.lose();
     let wallet = this.snap.wallet;
     if (g.phase === 'gameOver') {
@@ -541,8 +498,8 @@ class Controller {
     const game = this.snap.game;
     if (!game || game.phase !== 'roundResult') return;
     sfx.tap();
-    this.commit({ game: nextRound(game), round: null, deck: null, botSlots: [] });
-    this.beginDraft();
+    this.commit({ game: nextRound(game), match: null });
+    this.beginMatch();
   }
 
   cashOut() {
@@ -558,6 +515,10 @@ class Controller {
     const game = this.snap.game;
     if (!game) return;
     this.start(game.mode);
+  }
+
+  unopenedCount(): number {
+    return this.snap.match ? unopened(this.snap.match.you).length : 0;
   }
 }
 
@@ -580,4 +541,4 @@ export const controller = new Controller();
 export function useGame(): Snapshot {
   return useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
 }
-export { STAKES, ROW1, ROW2 };
+export { STAKES };

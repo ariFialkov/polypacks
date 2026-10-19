@@ -2,20 +2,28 @@ export type Category = 'life' | 'stuff' | 'places' | 'ideas' | 'happenings' | 's
 export type MainCategory = Exclude<Category, 'special'>;
 export type Rarity = 1 | 2 | 3 | 4 | 5 | 6; // common, uncommon, rare, epic, legendary, mythic (by prowess)
 
-/** Effects a happenings card triggers when played. */
-export type HappeningEffect =
-  | { kind: 'boostSelf'; amount: number }
-  | { kind: 'hitOpp'; amount: number }
-  | { kind: 'fieldShake'; amount: number }
-  | { kind: 'halveOppTop' }
-  | { kind: 'doubleLast' }
-  | { kind: 'steal' };
-
-/** Draft-time abilities a card can carry. */
+/** Abilities a card can carry. Most fire on pick (and again when the card changes hands). */
 export type AbilityId =
-  | 'delorean' // repick an already-opened pack (same options)
-  | 'dejavu' // reroll the contents of one unopened pack
-  | 'flashmob' // the next pack you open shows one extra option
+  | 'delorean'
+  | 'bitcoin'
+  | 'cat'
+  | 'flamethrower'
+  | 'divine'
+  | 'area51'
+  | 'pentagon'
+  | 'rapture'
+  | 'cayman'
+  | 'ponzi'
+  | 'bermuda'
+  | 'coup'
+  | 'dejavu'
+  | 'trolley'
+  | 'wedding'
+  | 'defib'
+  | 'bouncer'
+  | 'postnut'
+  | 'pretty'
+  | 'dui'
   // ??? cards
   | 'redemption'
   | 'god'
@@ -24,22 +32,13 @@ export type AbilityId =
   | 'devil'
   | 'premonition';
 
-export interface PlaceMods {
-  life?: number;
-  stuff?: number;
-  ideas?: number;
-  happenings?: number;
-}
-
 export interface CardDef {
   id: string;
   name: string;
   cat: Category;
-  rating: number; // base value in $k
-  rarity: Rarity;
+  rating: number; // 40–99 (0 for ??? cards)
+  rarity: Rarity; // tier, computed from prowess
   blurb?: string;
-  effect?: HappeningEffect;
-  mods?: PlaceMods;
   ability?: AbilityId;
 }
 

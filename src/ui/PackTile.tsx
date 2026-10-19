@@ -1,8 +1,8 @@
 import { CATEGORY_META } from '../data/cards';
-import type { Pack, PackKind } from '../engine/draft';
+import type { MPack as Pack, PackKind } from '../engine/match';
 import { CatIcon, Ui } from './Icon';
 
-export const PACK_HUES: Record<PackKind, number> = { basic: 255, enhanced: 320, baptized: 45, category: 190, mystery: 20, redemption: 135 };
+export const PACK_HUES: Record<PackKind, number> = { basic: 255, enhanced: 320, baptized: 45, category: 190, redemption: 135 };
 
 export function PackArt({ kind, label, count, category, small }: { kind: PackKind; label: string; count?: number; category?: string; small?: boolean }) {
   return (
@@ -23,7 +23,7 @@ export function PackArt({ kind, label, count, category, small }: { kind: PackKin
 }
 
 export function PackTile({ pack, onClick, state, style, mirrored }: { pack: Pack; onClick?: () => void; state?: 'idle' | 'targetable' | 'peeked' | 'gone'; style?: React.CSSProperties; mirrored?: boolean }) {
-  const cls = ['pack', state ?? 'idle', pack.locked ? 'locked' : '', mirrored ? 'mirrored' : ''];
+  const cls = ['pack', state ?? 'idle', pack.locked ? 'locked' : '', pack.destroyed ? 'destroyed' : '', mirrored ? 'mirrored' : ''];
   return (
     <button className={cls.join(' ')} style={style} onClick={onClick} disabled={!onClick} aria-label={`${pack.label} pack`}>
       <PackArt kind={pack.kind} label={pack.label} count={pack.size} category={pack.kind === 'category' ? pack.category : undefined} small />

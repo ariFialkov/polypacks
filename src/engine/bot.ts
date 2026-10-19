@@ -1,8 +1,9 @@
-import { CARDS, cardsOf } from '../data/cards';
+import { CARDS, GROUPS } from '../data/cards';
+import { findCombos } from '../data/combos';
+import { buildDeck } from './deck';
 import { Rng } from './rng';
-import { cloneRound, playCard, sideScore, swapPlace, type RoundState, type SideState } from './round';
-import { placeMult } from './deck';
-import type { CardDef, CardInst, MainCategory, Side } from './types';
+import { acquire, allInPlayIds, answer, cloneMatch, fillEmpty, flipCat, pickCard, sideScore, turnRng, unopened, type BotDecisions, type MPack, type MatchState, type SideState } from './match';
+import type { CardDef, MainCategory, Side } from './types';
 
 export interface RoundFate {
   playerWins: boolean;
@@ -19,252 +20,317 @@ export function botIdentity(rng: Rng): { name: string } {
   return { name: rng.pick(BOT_NAMES) };
 }
 
-export const FLEX_CATS: MainCategory[] = ['life', 'stuff', 'ideas'];
+/** The neutral stand-in used inside simulations so nested bot turns do not recurse into steering. */
+const NEUTRAL: BotDecisions = {
+  pickFor: (s, pack) => ({ def: neutralCard(s, pack.category) }),
+  fillFor: (s, cat) => neutralCard(s, cat),
+  catChoice: () => 'top',
+};
 
-/**
- * Build the bot's concealed hand to mirror the player's hand categories. The actual identities of
- * the bot's cards are only decided when they are revealed, which is what lets the round land on the
- * pre-computed result while every move still looks like a choice.
- */
-export function buildBotSide(rng: Rng, you: SideState, name: string, excludeIds: Set<string>, fate: RoundFate, youPotential: number): Omit<SideState, 'field' | 'penalty' | 'swappedPlace'> {
-  const cats = you.hand.map((c) => c.def.cat as MainCategory);
-  const hand: CardInst[] = rng.shuffle(cats).map((cat, i) => ({ uid: `b${i + 1}`, def: placeholder(cat) }));
-  const places = cardsOf('places').filter((c) => !excludeIds.has(c.id));
-  // The scene is the one thing the bot commits to before any card is revealed, so it is chosen to
-  // give the fated result room: a strong multiplier when it has to win big, a weak one when it must lose.
-  const reach = (place: CardDef) => {
-    const inst = { uid: 'x', def: place };
-    let max = place.rating;
-    let min = place.rating;
-    for (const cat of cats) {
-      const r = contributionRange(inst, cat, excludeIds);
-      max += r.max;
-      min += r.min;
+function neutralCard(s: MatchState, cat?: MainCategory, target = 60): CardDef {
+  const taken = allInPlayIds(s);
+  const pool = CARDS.filter((c) => c.cat !== 'special' && (!cat || c.cat === cat) && !taken.has(c.id) && !c.ability);
+  const sorted = pool.sort((a, b) => Math.abs(a.rating - target) - Math.abs(b.rating - target));
+  return sorted[0] ?? CARDS.find((c) => c.cat === (cat ?? 'stuff'))!;
+}
+
+/** Decisions the player would make when a simulated bot action asks them something. */
+function autoAnswerYou(s: MatchState) {
+  let guard = 0;
+  while (s.prompt && s.promptFor === 'you' && guard++ < 6) {
+    const p = s.prompt;
+    if (p.kind === 'dui') {
+      const sum = (uids: string[]) => uids.reduce((t, u) => t + (s.you.cards.find((c) => c.uid === u)?.def.rating ?? 0), 0);
+      answer(s, { option: sum(p.vehicles) <= sum(p.impairments) ? 'vehicles' : 'impairments' });
+    } else if (p.kind === 'champion') {
+      const best = p.animals.slice().sort((a, b) => (s.you.cards.find((c) => c.uid === b)?.def.rating ?? 0) - (s.you.cards.find((c) => c.uid === a)?.def.rating ?? 0))[0];
+      answer(s, { uid: best });
+    } else answer(s, { accept: false });
+  }
+}
+
+/** Current gap, bot minus you. */
+function gapNow(s: MatchState): number {
+  return sideScore(s.bot) - sideScore(s.you);
+}
+
+/** How much a card would be worth to a side if added right now (ratings, combos, and its ability's bite). */
+/** What taking `def` adds for `who` (best nine + combos + ability bite), and whether it fills an empty slot. */
+function optionInfo(s: MatchState, who: Side, def: CardDef): { v: number; fills: number } {
+  const ss = who === 'you' ? s.you : s.bot;
+  const opp = who === 'you' ? s.bot : s.you;
+  if (def.cat === 'special') return { v: def.ability === 'god' ? 120 : def.ability === 'devil' ? 70 : def.ability === 'redemption' ? 60 : 10, fills: 0 };
+  // what the card really adds: only the best nine count, combos included
+  const unlocked = ss.flags.godMode ? 3 : 0;
+  const before = buildDeck(ss.cards, { unlocked });
+  const after = buildDeck([...ss.cards, { uid: 'trial', def }], { unlocked });
+  const empties = (d: { slots: { card: unknown }[] }) => d.slots.filter((x) => !x.card).length;
+  const fills = Math.max(0, empties(before) - empties(after));
+  let v = after.potential - before.potential;
+  const oppRatings = opp.cards.map((c) => c.def.rating);
+  const oppMax = oppRatings.length ? Math.max(...oppRatings) : 0;
+  const oppMin = oppRatings.length ? Math.min(...oppRatings) : 0;
+  switch (def.ability) {
+    case 'rapture':
+    case 'flamethrower':
+      v += oppMax;
+      break;
+    case 'coup':
+      v += Math.max(0, oppMax - (ss.cards.length ? Math.min(...ss.cards.map((c) => c.def.rating)) : 0));
+      break;
+    case 'trolley':
+      v += oppMin;
+      break;
+    case 'bermuda':
+      v += opp.cards.filter((c) => (GROUPS.boats as readonly string[]).includes(c.def.id)).reduce((t, c) => t + c.def.rating, 0);
+      break;
+    case 'pretty':
+      v += Math.max(0, ...opp.cards.filter((c) => (GROUPS.prettyTargets as readonly string[]).includes(c.def.id)).map((c) => c.def.rating));
+      break;
+    case 'pentagon':
+      v += opp.cards.some((c) => c.def.id === 'communism') ? 90 : 0;
+      break;
+    case 'wedding':
+      v += Math.max(0, ...findCombos(opp.cards.map((c) => c.def.id)).map((c) => c.bonus));
+      break;
+    case 'dui': {
+      const veh = opp.cards.filter((c) => (GROUPS.vehicles as readonly string[]).includes(c.def.id));
+      const imp = opp.cards.filter((c) => (GROUPS.impairments as readonly string[]).includes(c.def.id));
+      if (veh.length && imp.length) v += Math.min(veh.reduce((t, c) => t + c.def.rating, 0), imp.reduce((t, c) => t + c.def.rating, 0));
+      break;
     }
-    return { max, min };
-  };
-  const scored = places.map((p) => ({ p, ...reach(p) }));
-  let pool: CardDef[];
-  if (fate.playerWins) {
-    const target = youPotential - fate.margin - 90;
-    const ok = scored.filter((x) => x.min <= target);
-    pool = (ok.length >= 4 ? ok : scored.sort((a, b) => a.min - b.min).slice(0, 4)).map((x) => x.p);
-  } else {
-    const target = youPotential + fate.margin + 150;
-    const ok = scored.filter((x) => x.max >= target);
-    pool = (ok.length >= 4 ? ok : scored.sort((a, b) => b.max - a.max).slice(0, 4)).map((x) => x.p);
+    case 'bitcoin':
+      v += 30; // an extra pack
+      break;
+    case 'defib':
+      v += Math.max(0, ...ss.graveyard.map((c) => c.def.rating)) * 0.8;
+      break;
   }
-  const place = rng.pick(pool);
-  // a concealed second place: its identity, like every concealed card, is only fixed when revealed
-  return { side: 'bot', name, place: { uid: 'bp1', def: place }, altPlace: { uid: 'bp2', def: placeholder('places') }, hand };
-}
-
-function placeholder(cat: MainCategory): CardDef {
-  return { id: `?${cat}`, name: '???', cat, rating: 0, rarity: 1 };
-}
-
-function usedIds(state: RoundState): Set<string> {
-  const ids = new Set<string>();
-  for (const s of [state.you, state.bot]) {
-    for (const f of s.field) ids.add(f.inst.def.id);
-    for (const h of s.hand) ids.add(h.def.id);
-    if (s.place) ids.add(s.place.def.id);
-    if (s.altPlace) ids.add(s.altPlace.def.id);
-  }
-  return ids;
-}
-
-/** Score gap (bot - you) if the player immediately dumped every remaining card, under a given place choice. */
-function dumpGap(state: RoundState, swapFirst: boolean): number {
-  let st = cloneRound(state);
-  st.turn = 'you';
-  st.done = false;
-  if (swapFirst) st = swapPlace(st, 'you');
-  const before = st.events.length;
-  for (const c of [...st.you.hand]) {
-    const s2 = cloneRound(st);
-    s2.turn = 'you';
-    s2.done = false;
-    st = playCard(s2, 'you', c.uid);
-    st.done = false;
-  }
-  let gap = sideScore(st.bot) - sideScore(st.you);
-  // Steals and halves that found no target yet will find one once the bot commits real cards.
-  // Plan for that pessimistically so the finale keeps its room.
-  for (const ev of st.events.slice(before)) {
-    if (ev.text === 'Nothing to take yet.') gap -= 2 * 45;
-    else if (ev.text === 'Nothing to halve yet.') gap -= 45;
-  }
-  return gap;
-}
-
-/** Range of final gaps the player can still force with their remaining choices. */
-function projectedGapRange(state: RoundState): { lo: number; hi: number; mid: number } {
-  const a = dumpGap(state, false);
-  const canSwap = state.you.hand.length > 0 && !!state.you.altPlace && !state.you.swappedPlace;
-  const b = canSwap ? dumpGap(state, true) : a;
-  const lo = Math.min(a, b);
-  const hi = Math.max(a, b);
-  return { lo, hi, mid: (lo + hi) / 2 };
-}
-
-function contributionOf(state: RoundState, uid: string, def: CardDef): number {
-  const st = cloneRound(state);
-  const h = st.bot.hand.find((c) => c.uid === uid)!;
-  h.def = def;
-  st.turn = 'bot';
-  st.done = false;
-  const after = playCard(st, 'bot', uid);
-  after.done = false;
-  return projectedGapRange(after).mid;
-}
-
-/** Rough range of gap shift a concealed bot card of this category can still produce. */
-function cardRange(state: RoundState, cat: MainCategory, used: Set<string>): { min: number; max: number } {
-  return contributionRange(state.bot.place, cat, used);
-}
-
-/** What a single concealed card of this category can add to the bot's side under a scene. */
-function contributionRange(place: CardInst | null, cat: MainCategory, used: Set<string>): { min: number; max: number } {
-  const m = placeMult(place, cat);
-  let min = Infinity;
-  let max = -Infinity;
-  for (const c of CARDS) {
-    if (c.cat !== cat || used.has(c.id)) continue;
-    let v = Math.round(c.rating * m);
-    if (c.effect) {
-      const e = c.effect;
-      if (e.kind === 'boostSelf' || e.kind === 'hitOpp') v += Math.round(e.amount * m);
-      else if (e.kind === 'fieldShake') v += Math.round(e.amount * m * 0.4);
-      else v += 20;
-    }
-    if (v < min) min = v;
-    if (v > max) max = v;
-  }
-  if (!isFinite(min)) return { min: 0, max: 0 };
-  return { min, max };
-}
-
-export interface BotChoice {
-  uid: string;
-  def: CardDef;
-  thinkMs: number;
-  /** swap the scene to this place (free action) before playing */
-  swapTo?: CardDef;
+  return { v, fills };
 }
 
 /**
- * Pick the bot's next card. The bot steers the gap toward the fated margin, spreading the
- * correction across its remaining cards so the final reveal looks like any other play. It
- * plans against everything the player could still do, so the last card always has room.
+ * Range of what the player can still add from their remaining packs plus the commons (40..56) that
+ * fill whatever slots are still empty at the end. An option that fills an empty slot forgoes that
+ * slot's end fill, so it is worth its value minus the fill it replaces.
  */
-export function chooseBotCard(state: RoundState, fate: RoundFate, rng: Rng): BotChoice {
-  const bot = state.bot;
-  const hand = bot.hand;
-  if (hand.length === 0) throw new Error('bot has no cards');
+function playerRemainingRange(s: MatchState): { lo: number; hi: number } {
+  const emptyNow = deckSlots(s.you).filter((x) => !x.card).length;
+  let lo = emptyNow * 40;
+  let hi = emptyNow * 56;
+  for (const p of unopened(s.you)) {
+    if (p.cards && p.cards.length) {
+      const infos = p.cards.map((c) => optionInfo(s, 'you', c));
+      lo += Math.min(...infos.map((i) => i.v - 40 * i.fills));
+      hi += Math.max(...infos.map((i) => i.v - 56 * i.fills));
+    } else {
+      lo += 55;
+      hi += 99;
+    }
+  }
+  return { lo, hi };
+}
+
+/** Simulate the bot taking `def` from `pack` and return the resulting gap (after minigames, before further turns). */
+function simulatePick(s: MatchState, pack: MPack, def: CardDef, second?: CardDef): MatchState {
+  const sim = cloneMatch(s);
+  sim.sim = true;
+  sim.botDecisions = NEUTRAL;
+  const p = sim.bot.packs.find((x) => x.id === pack.id)!;
+  p.opened = true;
+  p.picked = false;
+  p.cards = second ? [def, second] : [def];
+  if (second) p.catPack = true;
+  sim.turn = 'bot';
+  sim.prompt = null;
+  try {
+    pickCard(sim, 'bot', p.id, def.id, second?.id);
+    autoAnswerYou(sim);
+  } catch {
+    // a simulated pick that throws is simply not a candidate
+  }
+  return sim;
+}
+
+/** Fill the player's empties the way the engine will; the bot's empties get the lowest commons. */
+function previewFinal(s: MatchState): { you: number; botLow: number; rem: number } {
+  const sim = cloneMatch(s);
+  sim.sim = true;
+  sim.botDecisions = NEUTRAL;
+  fillEmpty(sim, sim.you);
+  let rem = 0;
+  let guard = 0;
+  while (guard++ < 12) {
+    const empty = deckSlots(sim.bot).find((x) => !x.card);
+    if (!empty) break;
+    rem++;
+    const cat = empty.slot.accepts[0] as MainCategory;
+    const taken = allInPlayIds(sim);
+    const pool = CARDS.filter((c) => c.cat === cat && c.rarity === 1 && !taken.has(c.id) && !c.ability).sort((a, b) => a.rating - b.rating);
+    acquire(sim, 'bot', pool[0] ?? neutralCard(sim, cat, 40), 'fill');
+  }
+  return { you: sideScore(sim.you), botLow: sideScore(sim.bot), rem };
+}
+function deckSlots(ss: SideState) {
+  return deckOf(ss).slots;
+}
+import { deckOf } from './match';
+
+/** Distance from a target to an interval, and whether the interval holds a point on the fated side. */
+function intervalScore(lo: number, hi: number, target: number, rightSide: (g: number) => boolean): number {
+  const holds = rightSide(lo) || rightSide(hi) || (lo < 0 && hi > 0);
+  const dist = target < lo ? lo - target : target > hi ? target - hi : 0;
+  return (holds ? 0 : 1000 + Math.min(Math.abs(lo - target), Math.abs(hi - target))) + dist;
+}
+
+export function makeBotDecisions(fate: RoundFate): BotDecisions {
   const targetGap = fate.playerWins ? -fate.margin : fate.margin;
-  const gap = projectedGapRange(state);
-  const k = hand.length;
-  const used = usedIds(state);
+  const rightSide = (gap: number) => (fate.playerWins ? gap < 0 : gap > 0);
 
-  // keep at least one flexible card for the finale
-  const flexInHand = hand.filter((c) => FLEX_CATS.includes(c.def.cat as MainCategory));
-  let playable = hand;
-  if (k > 1 && flexInHand.length === 1) playable = hand.filter((c) => c !== flexInHand[0]);
-  if (k > 1 && state.you.hand.length > 0 && playable.some((c) => c.def.cat === 'happenings') && rng.chance(0.5)) {
-    // happenings feel natural mid-round; bias to play them before the end
-    playable = playable.filter((c) => c.def.cat === 'happenings');
+  function candidatesFor(s: MatchState, pack: MPack): CardDef[] {
+    const taken = allInPlayIds(s);
+    const youPackIds = new Set<string>();
+    for (const p of s.you.packs) for (const c of p.cards ?? []) youPackIds.add(c.id);
+    return CARDS.filter((c) => c.cat !== 'special' && !taken.has(c.id) && !youPackIds.has(c.id) && (!pack.category || c.cat === pack.category));
   }
 
-  type Cand = { uid: string; def: CardDef; contrib: number };
-  const cands: Cand[] = [];
-  for (const h of playable) {
-    const pool = CARDS.filter((c) => c.cat === h.def.cat && !used.has(c.id));
-    for (const def of pool) cands.push({ uid: h.uid, def, contrib: contributionOf(state, h.uid, def) });
-  }
-  if (cands.length === 0) {
-    const h = playable[0];
-    return { uid: h.uid, def: CARDS.find((c) => c.cat === h.def.cat)!, thinkMs: 900 };
-  }
-
-  let chosen: Cand;
-  let swapTo: CardDef | undefined;
-  if (k === 1) {
-    // final reveal: must land on the right side of zero, as close to the fated margin as possible
-    const right = cands.filter((c) => (fate.playerWins ? c.contrib < 0 : c.contrib > 0));
-    const pool = right.length ? right : cands;
-    pool.sort((a, b) => Math.abs(a.contrib - targetGap) - Math.abs(b.contrib - targetGap));
-    chosen = pool[0];
-    // If the hand alone cannot land it, the concealed second place comes out: a new scene, then the card.
-    if ((!right.length || Math.abs(chosen.contrib - targetGap) > 30) && bot.altPlace && !bot.swappedPlace) {
-      const h = playable[0];
-      let best: { def: CardDef; place: CardDef; contrib: number } | null = null;
-      for (const place of CARDS) {
-        if (place.cat !== 'places' || used.has(place.id)) continue;
-        const st = cloneRound(state);
-        st.bot.altPlace!.def = place;
-        const swapped = swapPlace(st, 'bot');
-        for (const def of CARDS) {
-          if (def.cat !== h.def.cat || used.has(def.id)) continue;
-          const contrib = contributionOf(swapped, h.uid, def);
-          const ok = fate.playerWins ? contrib < 0 : contrib > 0;
-          const err = Math.abs(contrib - targetGap) + (ok ? 0 : 1000);
-          if (!best || err < Math.abs(best.contrib - targetGap) + ((fate.playerWins ? best.contrib < 0 : best.contrib > 0) ? 0 : 1000)) best = { def, place, contrib };
-        }
-      }
-      if (best) {
-        const bestOk = fate.playerWins ? best.contrib < 0 : best.contrib > 0;
-        const curOk = fate.playerWins ? chosen.contrib < 0 : chosen.contrib > 0;
-        if ((bestOk && !curOk) || (bestOk === curOk && Math.abs(best.contrib - targetGap) < Math.abs(chosen.contrib - targetGap))) {
-          chosen = { uid: h.uid, def: best.def, contrib: best.contrib };
-          swapTo = best.place;
-        }
+  /** What the bot's remaining packs and forced end fills can still add, given a simulated state. */
+  function restBounds(sim: MatchState, pack: MPack): { min: number; max: number } {
+    let min = 0;
+    let max = 0;
+    const slots = deckSlots(sim.bot);
+    let empties = slots.filter((x) => !x.card).length;
+    const lowestAll = Math.min(...slots.map((x) => x.card?.def.rating ?? 0));
+    for (const p of unopened(sim.bot)) {
+      if (p.id === pack.id) continue;
+      if (p.category) {
+        const pool = CARDS.filter((c) => c.cat === p.category);
+        const catMax = Math.max(...pool.map((c) => c.rating));
+        const catMin = Math.min(...pool.map((c) => c.rating));
+        const fitting = slots.filter((x) => x.slot.accepts.includes(p.category!));
+        const open = fitting.some((x) => !x.card);
+        const lowest = Math.min(...fitting.map((x) => x.card?.def.rating ?? 0));
+        min += open ? catMin : 0;
+        max += open ? catMax : Math.max(0, catMax - lowest);
+        if (open) empties--;
+      } else {
+        min += empties > 0 ? 40 : 0;
+        max += empties > 0 ? 99 : Math.max(0, 99 - lowestAll);
+        if (empties > 0) empties--;
       }
     }
-  } else {
-    const share = (targetGap - gap.mid) / k;
-    const scored = cands.map((c) => {
-      // what the rest of the hand would have to cover, after this card, across the player's options
-      const rest = hand.filter((h) => h.uid !== c.uid);
-      let restMin = 0;
-      let restMax = 0;
-      const usedNow = new Set(used);
-      usedNow.add(c.def.id);
-      for (const h of rest) {
-        const r = cardRange(state, h.def.cat as MainCategory, usedNow);
-        restMin += r.min;
-        restMax += r.max;
+    // whatever is still empty after the packs is force-filled with a common
+    min += Math.max(0, empties) * 40;
+    max += Math.max(0, empties) * 56;
+    return { min, max };
+  }
+
+  /** The player total the bot plans against: pessimistic toward the fated side. */
+  function planPoint(r: { lo: number; hi: number }): number {
+    return fate.playerWins ? r.lo : r.hi;
+  }
+
+  function choose(s: MatchState, pack: MPack, cands: CardDef[], salt: number): CardDef {
+    const rng = turnRng(s, salt);
+    const botLeft = unopened(s.bot).filter((p) => p.id !== pack.id).length;
+    const youLeft = unopened(s.you).length;
+    const k = botLeft + 1;
+    const range = playerRemainingRange(s);
+    const isFinale = botLeft === 0;
+    const base = gapNow(s);
+    const needBefore = targetGap - (base - planPoint(range));
+    const want = needBefore / k;
+    type Sc = { def: CardDef; gap: number; penalty: number; info?: string };
+    const scored: Sc[] = [];
+    for (const def of cands) {
+      const sim = simulatePick(s, pack, def);
+      let gap: number;
+      let penalty = 0;
+      let info = '';
+      if (isFinale && youLeft === 0) {
+        const f = previewFinal(sim);
+        const lo = f.botLow - f.you;
+        const hi = lo + 16 * f.rem; // later fills can be any common, 40..56
+        gap = lo;
+        penalty += intervalScore(lo, hi, targetGap, rightSide);
+      } else {
+        gap = gapNow(sim);
+        const r = playerRemainingRangeAfter(sim, range);
+        if (isFinale) {
+          // the player still has packs: hold against everything they can do
+          const worst = gap - r.hi;
+          const best = gap - r.lo;
+          if (!rightSide(worst)) penalty += 1000 + Math.abs(worst - targetGap);
+          if (!rightSide(best)) penalty += 500;
+          penalty += Math.abs((worst + best) / 2 - targetGap);
+        } else {
+          const thisVal = gap - base;
+          penalty += Math.abs(thisVal - want) * 0.6;
+          const need = targetGap - (gap - planPoint(r)); // what the rest must add
+          const rest = restBounds(sim, pack);
+          const slack = 16;
+          // past the floor: the only sane move is to add as little as possible (or as much, when it must win)
+          if (need < rest.min + slack) penalty += (rest.min + slack - need) * 4 + Math.max(0, thisVal) * 2;
+          if (need > rest.max - slack) penalty += (need - (rest.max - slack)) * 4 + Math.max(0, 120 - thisVal) * 2;
+          info = `need ${need.toFixed(0)} rest ${rest.min}-${rest.max} r ${r.lo}-${r.hi}`;
+        }
       }
-      const shift = c.contrib - gap.mid;
-      const needLo = targetGap - (gap.hi + shift); // player maximises their own score
-      const needHi = targetGap - (gap.lo + shift); // player minimises it
-      const slack = Math.max(6, (restMax - restMin) * 0.12);
-      let penalty = Math.abs(shift - share);
-      if (needLo < restMin + slack) penalty += (restMin + slack - needLo) * 5;
-      if (needHi > restMax - slack) penalty += (needHi - (restMax - slack)) * 5;
-      return { c, penalty };
-    });
+      // keep it believable: ability cards and off-pack rarities are rarer finds
+      if (def.ability) penalty += 12;
+      if (pack.kind === 'basic' && def.rarity >= 5) penalty += 10;
+      scored.push({ def, gap, penalty, info });
+    }
     scored.sort((a, b) => a.penalty - b.penalty);
-    const top = scored.slice(0, Math.min(3, scored.length));
-    chosen = rng.weighted(top, (t) => 1 / (1 + t.penalty)).c;
+    const top = scored.slice(0, isFinale ? 1 : Math.min(4, scored.length));
+    return rng.weighted(top, (t) => 1 / (1 + t.penalty)).def;
   }
-  const thinkMs = 700 + rng.int(1400) + (k === 1 ? 600 : 0);
-  return { uid: chosen.uid, def: chosen.def, thinkMs, swapTo };
+
+  return {
+    pickFor(s, pack) {
+      const cands = candidatesFor(s, pack);
+      if (!cands.length) return { def: neutralCard(s, pack.category) };
+      const def = choose(s, pack, cands, 1);
+      if (s.bot.flags.catNext) {
+        const rest = cands.filter((c) => c.id !== def.id && c.cat === def.cat);
+        if (rest.length) return { def, second: choose(s, pack, rest, 2) };
+      }
+      return { def };
+    },
+    fillFor(s, cat) {
+      const taken = allInPlayIds(s);
+      const pool = CARDS.filter((c) => c.cat === cat && c.rarity === 1 && !taken.has(c.id));
+      if (!pool.length) return neutralCard(s, cat, 40);
+      const rem = deckSlots(s.bot).filter((x) => !x.card).length - 1; // fills still to come after this one
+      const scored = pool.map((def) => {
+        const sim = cloneMatch(s);
+        sim.sim = true;
+        sim.botDecisions = NEUTRAL;
+        acquire(sim, 'bot', def, 'fill');
+        const g = sideScore(sim.bot) - sideScore(sim.you);
+        return { def, g, pen: intervalScore(g + 40 * rem, g + 56 * rem, targetGap, rightSide) };
+      });
+      scored.sort((a, b) => a.pen - b.pen);
+      return scored[0].def;
+    },
+    catChoice(s) {
+      if (!s.bot.catPair) return 'top';
+      const now = sideScore(s.bot) - sideScore(s.you);
+      const sim = cloneMatch(s);
+      sim.sim = true;
+      sim.botDecisions = NEUTRAL;
+      sim.turn = 'bot';
+      flipCat(sim, 'bot');
+      const flipped = sideScore(sim.bot) - sideScore(sim.you);
+      const score = (g: number) => (rightSide(g) ? 0 : 1000) + Math.abs(g - targetGap);
+      return score(flipped) < score(now) ? 'under' : 'top';
+    },
+  };
 }
 
-/** Apply the bot's choice: reveal the identity and play it. */
-export function applyBotChoice(state: RoundState, choice: BotChoice): RoundState {
-  let st = cloneRound(state);
-  if (choice.swapTo && st.bot.altPlace && !st.bot.swappedPlace) {
-    st.bot.altPlace.def = choice.swapTo;
-    st = swapPlace(st, 'bot');
+function playerRemainingRangeAfter(sim: MatchState, fallback: { lo: number; hi: number }): { lo: number; hi: number } {
+  try {
+    return playerRemainingRange(sim);
+  } catch {
+    return fallback;
   }
-  const h = st.bot.hand.find((c) => c.uid === choice.uid);
-  if (!h) throw new Error('bot card missing');
-  h.def = choice.def;
-  return playCard(st, 'bot', choice.uid);
-}
-
-export function sideFor(s: Side) {
-  return s;
 }

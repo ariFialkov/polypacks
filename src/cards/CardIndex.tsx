@@ -3,7 +3,9 @@ import { CARDS, CARD_BY_ID, CATEGORY_META, TIER_META, tierScore } from '../data/
 import { CARD_ART_NAMES } from '../data/art';
 import { COMBOS, comboHints, findCombos } from '../data/combos';
 import type { CardDef, Category, Rarity } from '../engine/types';
-import { Card, effectLabel, modLabel } from '../ui/Card';
+import { Card } from '../ui/Card';
+import { ABILITIES } from '../data/abilities';
+import { MINIGAMES } from '../data/minigames';
 import { ArtDefs, CatIcon } from '../ui/Icon';
 
 const CATS: Category[] = ['life', 'stuff', 'places', 'ideas', 'happenings', 'special'];
@@ -18,11 +20,9 @@ function loadNotes(): Record<string, string> {
 }
 
 function extraText(c: CardDef): string {
-  const parts: string[] = [];
-  if (c.effect) parts.push(`Effect: ${effectLabel(c)}`);
-  if (c.mods) parts.push(`Scene: ${modLabel(c)}`);
-  if (c.ability) parts.push(`Ability: ${c.ability}`);
-  return parts.join(' · ');
+  if (!c.ability) return '';
+  const a = ABILITIES[c.ability];
+  return `${a.name} (${a.timing}): ${a.text}`;
 }
 
 export function CardIndex() {
@@ -140,9 +140,9 @@ export function CardIndex() {
                   <dt>id</dt><dd><code>{c.id}</code></dd>
                   <dt>category</dt><dd>{CATEGORY_META[c.cat].label}</dd>
                   <dt>rating</dt><dd>{c.rating} <span className="sub">(tier score {tierScore(c)})</span></dd>
-                  {extraText(c) && (<><dt>extra</dt><dd>{extraText(c)}</dd></>)}
+                  {extraText(c) && (<><dt>ability</dt><dd>{extraText(c)}</dd></>)}
                   <dt>blurb</dt><dd>{c.blurb}</dd>
-                  <dt>art</dt><dd><code>{art?.main}</code>{art?.prop && <> + <code>{art.prop}</code></>} · scene <code>{art?.scene}</code></dd>
+                  <dt>art</dt><dd><code>{art?.main}</code> · scene <code>{art?.scene}</code></dd>
                 </dl>
                 <textarea className="ix-note" placeholder="Your notes for this card…" value={notes[c.id] ?? ''} onChange={(e) => setNotes((n) => ({ ...n, [c.id]: e.target.value }))} rows={2} />
               </div>
@@ -179,6 +179,19 @@ export function CardIndex() {
               </div>
             );
           })}
+        </div>
+      </section>
+
+      <section className="ix-combos" id="minigames">
+        <h2>Minigames ({MINIGAMES.length})</h2>
+        <p className="sub" style={{ marginBottom: 10 }}>Unlike combos, these fire when the whole table meets a condition, and resolve with one seeded roll.</p>
+        <div className="combo-list">
+          {MINIGAMES.map((mg) => (
+            <div key={mg.id} className="combo-row">
+              <div className="combo-name"><b>{mg.name}</b> <span className="sub">{mg.tagline}</span></div>
+              <div className="sub">{mg.rules}</div>
+            </div>
+          ))}
         </div>
       </section>
 
