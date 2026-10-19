@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CARD_BY_ID, CATEGORY_META, MAIN_CATEGORIES, TIER_META } from '../data/cards';
 import { ABILITIES } from '../data/abilities';
-import { COMBO_BY_ID, comboHints } from '../data/combos';
+import { COMBO_BY_ID, comboHints, findCombos } from '../data/combos';
 import { MINIGAME_BY_ID } from '../data/minigames';
 import { BOT_AVATARS } from '../data/art';
 import { PACK_INFO, PACK_PRICES, activeCombos, deckOf, sideScore, unopened, type MPack, type MatchState, type MinigameOutcome, type Prompt, type SideState } from '../engine/match';
@@ -19,7 +19,7 @@ const ROW1 = ['place', 'event', 'flex'];
 const ROW2 = ['life1', 'life2', 'stuff1', 'stuff2', 'stuff3', 'idea'];
 const SPECIAL_IDS = ['sp1', 'sp2', 'sp3'];
 const PACK_KINDS: (keyof typeof PACK_PRICES)[] = ['basic', 'enhanced', 'baptized', 'utility'];
-const SLOT_LABEL: Record<string, string> = { place: 'Place', event: 'Happening', flex: 'Place / Event', life1: 'Life', life2: 'Life', stuff1: 'Stuff', stuff2: 'Stuff', stuff3: 'Stuff', idea: 'Idea', sp1: 'Life / Stuff', sp2: 'Idea / Event', sp3: 'Wild' };
+const SLOT_LABEL: Record<string, string> = { place: 'Place', event: 'Happening', flex: 'Place / Happening', life1: 'Life', life2: 'Life', stuff1: 'Stuff', stuff2: 'Stuff', stuff3: 'Stuff', idea: 'Idea', sp1: 'Life / Stuff', sp2: 'Idea / Happening', sp3: 'Wild' };
 const SLOT_CAT: Record<string, MainCategory> = { place: 'places', event: 'happenings', flex: 'places', life1: 'life', life2: 'life', stuff1: 'stuff', stuff2: 'stuff', stuff3: 'stuff', idea: 'ideas', sp1: 'life', sp2: 'ideas', sp3: 'stuff' };
 
 export function Table({ s }: { s: Snapshot }) {
@@ -316,6 +316,13 @@ function Opening({ s, m }: { s: Snapshot; m: MatchState }) {
     if (Date.now() - (revealedAt[c.id] ?? 0) < 450) return;
     controller.pickCard(c.id);
   };
+  // a card that would complete a combo with what you already hold gets a flashing outline and the payoff
+  const held = m.you.cards.map((x) => x.def.id);
+  const already = new Set(findCombos(held).map((x) => x.id));
+  const comboFor = (c: CardDef) =>
+    findCombos([...held, c.id])
+      .filter((x) => !already.has(x.id) && !m.you.cancelledCombos.includes(x.id))
+      .sort((a, b) => b.bonus - a.bonus)[0];
   const title = o.mode === 'peek' ? 'A glimpse inside' : o.catPack ? (o.firstPick ? 'Now tap the card that goes under' : 'Tap the card that stays face up') : allRevealed ? 'Tap a card to take it' : 'Tap a card to flip it';
 
   return (
@@ -353,12 +360,18 @@ function Opening({ s, m }: { s: Snapshot; m: MatchState }) {
             <div className={`fan n${n}`}>
               {o.cards.map((c, i) => {
                 const revealed = o.revealed.includes(c.id);
+                const combo = revealed ? comboFor(c) : undefined;
                 const mid = (n - 1) / 2;
                 const rot = (i - mid) * (n > 4 ? 7 : 11);
                 const lift = Math.abs(i - mid) * 7;
                 return (
-                  <div key={c.id} className={`fanitem ${o.divine === c.id ? 'holy' : ''}`} style={{ ['--rot' as string]: `${rot}deg`, ['--lift' as string]: `${lift}px`, ['--i' as string]: i }}>
+                  <div key={c.id} className={`fanitem ${o.divine === c.id ? 'holy' : ''} ${combo ? 'combo' : ''}`} style={{ ['--rot' as string]: `${rot}deg`, ['--lift' as string]: `${lift}px`, ['--i' as string]: i }}>
                     <Card def={c} back={!revealed} backCat={c.cat} backRarity={c.rarity} selected={o.firstPick === c.id} flags={{ flipped: revealed }} onClick={o.mode === 'open' ? () => tap(c, revealed) : undefined} badge={revealed && c.ability ? ABILITIES[c.ability].name : undefined} />
+                    {combo && (
+                      <span className="combotag">
+                        {combo.name} <b>+{combo.bonus}</b>
+                      </span>
+                    )}
                   </div>
                 );
               })}

@@ -53,7 +53,7 @@ export function Card({ def, back, backCat, backRarity, onClick, selected, dim, v
           <div className="face front">
             <div className="art">
               <CardArt id={def.id} cat={cat} />
-              <span className="cat">
+              <span className={`cat ${meta.short.length > 6 ? 'long' : ''}`}>
                 <CatIcon cat={cat} /> {meta.short}
               </span>
               {cat !== 'special' && <span className={valCls}>{shown}</span>}

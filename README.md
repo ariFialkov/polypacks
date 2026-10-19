@@ -74,7 +74,8 @@ src/ui/sound.ts        WebAudio synth for taps, flips, tears, rares, wins
 ```
 
 Card illustrations are built from [Game Icons](https://game-icons.net) (CC BY 3.0) plus custom
-SVG shapes, rendered as layered neon sprites. Display font is Rajdhani (OFL) bundled through
+SVG shapes, rendered as layered neon sprites in one colour: a pale neon fill with the category's glow,
+with cut-outs in the backdrop tone as the only second tone. Display font is Rajdhani (OFL) bundled through
 `@fontsource`.
 
 ### Tiers

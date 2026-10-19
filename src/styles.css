@@ -683,6 +683,7 @@ p {
   max-width: 420px;
 }
 .tierlegend {
+  padding-top: 12px;
   display: flex;
   gap: 10px;
   justify-content: center;
@@ -789,6 +790,7 @@ p {
   --fw: clamp(96px, min(24vw, 22vh), 160px);
 }
 .fanitem {
+  position: relative;
   transform: rotate(var(--rot)) translateY(var(--lift));
   transform-origin: 50% 160%;
   animation: fanIn 0.6s cubic-bezier(0.2, 0.9, 0.3, 1.15) both;
@@ -1003,6 +1005,15 @@ p {
   -webkit-backface-visibility: hidden;
   overflow: hidden;
 }
+/* the side facing away is also hidden outright (half a flip later), so a back never shows mirrored text
+   when a browser drops backface-visibility (filters, flattened 3D contexts) */
+.card .face {
+  transition: visibility 0s linear 0.28s;
+}
+.card.is-back .face.front,
+.card:not(.is-back) .face.back {
+  visibility: hidden;
+}
 .card .face.back {
   transform: rotateY(180deg);
   background: linear-gradient(160deg, #1a1536, #0b0a1a 70%);
@@ -1101,16 +1112,12 @@ p {
   fill: hsl(var(--hue) 95% 22%);
 }
 .glowart .ico.main svg.l-accent,
-.glowart .ico.main path.l-accent {
-  fill: var(--bad);
-}
+.glowart .ico.main path.l-accent,
 .glowart .ico.main svg.l-gold,
-.glowart .ico.main path.l-gold {
-  fill: url(#fill-goldgrad);
-}
+.glowart .ico.main path.l-gold,
 .glowart .ico.main svg.l-glow,
 .glowart .ico.main path.l-glow {
-  fill: #fff;
+  fill: inherit;
 }
 .glowart .ico.main path.s-light {
   stroke: #fff;
@@ -1118,12 +1125,8 @@ p {
 .glowart .ico.main path.s-dark {
   stroke: hsl(var(--hue) 95% 22%);
 }
-.glowart .ico.main path.s-accent {
-  stroke: var(--bad);
-}
-.glowart .ico.main path.s-gold {
-  stroke: #ffcf4a;
-}
+.glowart .ico.main path.s-accent,
+.glowart .ico.main path.s-gold,
 .glowart .ico.main path.s-glow {
   stroke: #fff;
 }
@@ -1198,6 +1201,10 @@ p {
   font-weight: 700;
   color: hsl(var(--hue) 100% 82%);
   text-shadow: 0 0 6px hsl(var(--hue) 100% 60%);
+}
+.card .cat.long {
+  font-size: calc(var(--w) * 0.072);
+  letter-spacing: 0.05em;
 }
 .card .cat svg {
   width: calc(var(--w) * 0.1);
@@ -1928,6 +1935,55 @@ p {
 .pack.destroyed {
   opacity: 0.25;
   filter: grayscale(1) blur(1px);
+}
+.fanitem.combo .card {
+  outline: 3px solid var(--good);
+  outline-offset: 3px;
+  border-radius: calc(var(--w) * 0.1);
+  animation: comboPulse 0.9s ease-in-out infinite;
+}
+@keyframes comboPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 12px 2px rgba(61, 255, 176, 0.45);
+    outline-color: rgba(61, 255, 176, 0.6);
+  }
+  50% {
+    box-shadow: 0 0 34px 8px rgba(61, 255, 176, 0.95);
+    outline-color: #fff;
+  }
+}
+.combotag {
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  transform: translate(-50%, 8px);
+  white-space: nowrap;
+  font-family: var(--display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #06140c;
+  background: var(--good);
+  padding: 3px 9px;
+  border-radius: 999px;
+  box-shadow: 0 0 14px rgba(61, 255, 176, 0.8);
+  animation: comboTag 0.9s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 2;
+}
+.combotag b {
+  font-weight: 800;
+}
+@keyframes comboTag {
+  0%,
+  100% {
+    transform: translate(-50%, 8px) scale(1);
+  }
+  50% {
+    transform: translate(-50%, 8px) scale(1.08);
+  }
 }
 .fanitem.holy .card {
   outline: 3px solid #fff6c8;
