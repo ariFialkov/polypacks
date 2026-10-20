@@ -96,8 +96,11 @@ export interface Answer {
 export interface MatchEvent {
   n: number;
   side: Side;
-  kind: 'open' | 'pick' | 'ability' | 'minigame' | 'combo' | 'end' | 'info';
+  kind: 'open' | 'pick' | 'ability' | 'minigame' | 'combo' | 'end' | 'info' | 'trigger';
   text: string;
+  /** trigger events: the card whose ability fired */
+  uid?: string;
+  card?: string;
 }
 
 export interface MinigameOutcome {
@@ -128,6 +131,8 @@ export interface MatchState {
   turnNo: number;
   prompt: Prompt | null;
   promptFor: Side | null; // whose decision; the match waits for 'you'
+  /** the card (and its owner) whose ability raised the current prompt, if any */
+  promptFrom?: { card: string; side: Side } | null;
   resume: 'endTurn' | 'minigames' | null; // what to continue after a prompt
   minigames: MinigameOutcome[];
   pendingMinigame: { id: string; champion?: { you?: string; bot?: string } } | null;
@@ -465,6 +470,7 @@ export function pickCard(s: MatchState, who: Side, packId: string, cardId: strin
   if (ss.flags.area51Pending && !s.prompt && who === 'you') {
     s.prompt = { kind: 'area51', mode: 'pack', cardUid: inst.uid };
     s.promptFor = 'you';
+    s.promptFrom = { card: 'area-51', side: 'you' };
     s.resume = 'endTurn';
     return;
   }
@@ -549,6 +555,7 @@ export function answer(s: MatchState, a: Answer): void {
   const opp = side(s, other(who));
   s.prompt = null;
   s.promptFor = null;
+  s.promptFrom = null;
   switch (p.kind) {
     case 'bitcoin': {
       if (a.accept) {
@@ -800,9 +807,11 @@ function fireAbility(s: MatchState, who: Side, inst: CardInst) {
   if (ss.firedUids.includes(inst.uid)) return;
   ss.firedUids.push(inst.uid);
   const isYou = who === 'you';
+  if (def.cat !== 'special') s.events.push({ n: s.events.length, side: who, kind: 'trigger', text: `${def.name}`, uid: inst.uid, card: def.id });
   const prompt = (p: Prompt) => {
     s.prompt = p;
     s.promptFor = 'you';
+    s.promptFrom = { card: def.id, side: who };
   };
   switch (def.ability) {
     case 'delorean':
@@ -961,6 +970,7 @@ function fireAbility(s: MatchState, who: Side, inst: CardInst) {
       if (other(who) === 'you') {
         s.prompt = { kind: 'dui', vehicles, impairments };
         s.promptFor = 'you';
+        s.promptFrom = { card: def.id, side: who };
       } else {
         // the bot loses the cheaper group
         const vSum = vehicles.reduce((t, u) => t + (findCard(opp, u)?.def.rating ?? 0), 0);
@@ -1124,6 +1134,7 @@ function checkMinigames(s: MatchState) {
       if (ya.length > 1) {
         s.prompt = { kind: 'champion', animals: ya.map((c) => c.uid) };
         s.promptFor = 'you';
+        s.promptFrom = null;
         s.resume = s.resume ?? 'minigames';
         return;
       }

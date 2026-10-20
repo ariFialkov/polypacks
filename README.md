@@ -73,6 +73,11 @@ two cards and lets you flip which one counts, Divine Intervention marks the best
 pack, Déjà Vu / Premonition peek at a sealed pack, Bitcoin buys an extra Enhanced pack, DeLorean
 reopens a pack. The full list with exact wording is in `src/data/abilities.ts` and on the card index.
 
+Abilities are loud on purpose. Every card shows its ability's name under the art, and holding any
+card (press and hold, or long-press on a phone) opens a popup that explains it. When an ability fires,
+its card swells and flashes on the board and the ability's name sweeps across the screen; any choice it
+asks of you opens with a blinking header saying which ability, from whose card, and what to do.
+
 **Minigames** trigger when both boards line up (Animal Kingdom when both sides own animals, Act of
 God when a disaster meets a place, Fish On for a trawler and a tuna, Crime Pays, Bar Fight). They are
 resolved by a seeded roll with a short VFX overlay; the loser's card is removed. The roll is part of the

@@ -16,7 +16,7 @@ import { HOME_TIE, PLACE_THEMES, THEME_LABEL } from '../data/places';
 import { Wallet } from './Home';
 import { Art, CatIcon, Ui } from './Icon';
 import { PackArt, PackTile } from './PackTile';
-import { controller, type ComboFlash, type Snapshot } from './store';
+import { controller, type AbilityShow, type ComboFlash, type Snapshot } from './store';
 
 const ROW1 = ['place', 'event', 'flex'];
 const ROW2 = ['life1', 'life2', 'stuff1', 'stuff2', 'stuff3', 'idea'];
@@ -50,6 +50,7 @@ export function Table({ s }: { s: Snapshot }) {
   // card marks: the showdown's, or a just-completed combo's
   const marks: Record<string, Mark> = { ...(pb?.marks ?? {}) };
   if (!pb && s.comboFlash) for (const u of s.comboFlash.uids) marks[u] = { kind: 'combo' };
+  if (!pb && s.abilityShow) marks[s.abilityShow.uid] = { kind: 'ability' };
   const pop: ComboFlash | null = pb ? pb.pop : s.comboFlash;
   const scoreOf = (w: Side) => (pb ? pb.totals[w] : m.phase === 'done' && !s.showdown ? matchTotals(m)[w] : sideScore(w === 'you' ? m.you : m.bot));
 
@@ -147,7 +148,10 @@ export function Table({ s }: { s: Snapshot }) {
 
       {s.opening && <Opening s={s} m={m} />}
       {s.specialFx && <SpecialFx def={s.specialFx} />}
-      {prompt && prompt.kind !== 'peek' && !s.opening && <PromptOverlay prompt={prompt} m={m} />}
+      {prompt && prompt.kind !== 'peek' && !s.opening && !s.abilityShow && <PromptOverlay prompt={prompt} m={m} />}
+      {s.abilityShow && <AbilityBanner show={s.abilityShow} m={m} />}
+      {!s.abilityShow && !s.opening && prompt?.kind === 'peek' && <AbilityHead m={m} from={m.promptFrom ?? { card: prompt.source === 'dejavu' ? 'deja-vu' : 'premonition', side: 'you' }} what="Tap one of your glowing sealed packs to look inside. It stays sealed and you take nothing." floating />}
+      {!s.abilityShow && !s.opening && !prompt && s.tool && <AbilityHead m={m} from={{ card: s.tool === 'delorean' ? 'delorean' : 'premonition', side: 'you' }} what={s.tool === 'delorean' ? 'Tap one of your glowing picked packs to reopen it and choose again.' : 'Tap one of your glowing sealed packs to look inside. It stays sealed.'} floating />}
       {s.minigameShow && <MinigameOverlay mg={s.minigameShow} m={m} />}
       {pb?.layer}
       {(game.phase === 'roundResult' || game.phase === 'gameOver') && <ResultOverlay s={s} />}
@@ -366,7 +370,7 @@ function Slot({ slot, i, side, m, fresh, you, yourTurn, homeUid, mark }: { slot:
 function TurnBar({ s, m, yourTurn, prompt, youLeft }: { s: Snapshot; m: MatchState; yourTurn: boolean; prompt: Prompt | null; youLeft: number }) {
   const c = m.you.charges;
   const solo = m.solo;
-  if (prompt?.kind === 'peek') return <span className="ticker"><b>{prompt.source === 'dejavu' ? 'Seen It' : 'Premonition'}</b> · tap one of your sealed packs</span>;
+  if (prompt?.kind === 'peek') return <span className="ticker"><b>{prompt.source === 'dejavu' ? 'Seen It' : 'Premonition'}</b> · tap a glowing pack</span>;
   if (prompt) return <span className="ticker"><b>Your call</b></span>;
   if (s.botBusy) return <span className="ticker">{m.bot.name} {s.botStatus}</span>;
   if (m.turn === 'bot' && !solo) return <span className="ticker">{m.bot.name} is up…</span>;
@@ -495,6 +499,7 @@ function Opening({ s, m }: { s: Snapshot; m: MatchState }) {
               })}
             </div>
             <div className="detail blurbbox">
+              {o.cards.some((c) => o.revealed.includes(c.id)) && <HoldHint />}
               <div className="tierlegend">
                 {([1, 2, 3, 4, 5, 6] as const).map((t) => (
                   <span key={t} style={{ ['--tier' as string]: TIER_META[t].color }}>{TIER_META[t].label}</span>
@@ -693,11 +698,77 @@ function PromptOverlay({ prompt, m }: { prompt: Prompt; m: MatchState }) {
   return (
     <div className="overlay prompt">
       <div className="inner">
+        {m.promptFrom && <AbilityHead m={m} from={m.promptFrom} what={PROMPT_HOWTO[prompt.kind === 'area51' ? `area51-${prompt.mode}` : prompt.kind] ?? title} />}
+        {!m.promptFrom && <span className="eyebrow">{eyebrow}</span>}
         <div className="detail">
-          <span className="eyebrow">{eyebrow}</span>
           <h2>{title}</h2>
         </div>
         {body}
+        <HoldHint />
+      </div>
+    </div>
+  );
+}
+
+/** What to do for each ability prompt, in one line. */
+const PROMPT_HOWTO: Record<string, string> = {
+  bitcoin: 'Choose: spend it on an extra Enhanced pack, or keep it in your set.',
+  flamethrower: 'Tap one of their cards to burn it. It is gone for good.',
+  'area51-initial': 'Tap one of your cards to protect and hide it, or save the protection for your next pick.',
+  'area51-pack': 'Protect this card now, or wait and protect a later pick.',
+  pentagon: 'Their Communism is gone. Take the Military Coup if you want it.',
+  coup: 'Tap the card of theirs to take, then the card of yours you give up.',
+  trolley: 'Pull the lever: remove their lowest card, or one of their sealed Basic packs.',
+  wedding: 'Tap the combo of theirs to cancel.',
+  defib: 'Tap one of your destroyed cards to bring it back.',
+  postnut: 'Trade your weakest card for a random card of its category, or keep it.',
+  pretty: 'Tap one of their cards to take it.',
+  dui: 'Their checkpoint caught you. Tap the group you give up.',
+};
+
+/** A blinking header: which ability, from whose card, and what to do now. */
+function AbilityHead({ m, from, what, floating }: { m: MatchState; from: { card: string; side: Side }; what: string; floating?: boolean }) {
+  const def = CARD_BY_ID[from.card];
+  const ab = def?.ability ? ABILITIES[def.ability] : null;
+  if (!def) return null;
+  const owner = from.side === 'you' ? 'your' : `${m.bot.name}'s`;
+  return (
+    <div className={`abilityhead ${floating ? 'floating' : ''} ${from.side}`}>
+      <div className="line1">
+        <span className="tag">ability</span>
+        <b>{ab?.name ?? def.name}</b>
+        <span className="src">
+          from {owner} {def.name}
+        </span>
+      </div>
+      <div className="line2">{what}</div>
+    </div>
+  );
+}
+
+/** The hint for the hold-to-read mechanic. */
+function HoldHint() {
+  return (
+    <div className="holdhint">
+      <span className="ring" /> Hold any card to read its ability
+    </div>
+  );
+}
+
+/** An ability firing: its card pulses on the board, then the name sweeps across the screen. */
+function AbilityBanner({ show, m }: { show: AbilityShow; m: MatchState }) {
+  const def = CARD_BY_ID[show.card];
+  const ab = def?.ability ? ABILITIES[def.ability] : null;
+  if (!def || !ab) return null;
+  const owner = show.side === 'you' ? 'Your' : `${m.bot.name}'s`;
+  return (
+    <div className={`abilitybanner ${show.side}`} key={show.key}>
+      <div className="band">
+        <span className="who">
+          {owner} {def.name}
+        </span>
+        <b>{ab.name}</b>
+        <span className="what">{ab.text}</span>
       </div>
     </div>
   );

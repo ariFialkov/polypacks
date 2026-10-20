@@ -8,6 +8,7 @@ import { Card } from '../ui/Card';
 import { ABILITIES } from '../data/abilities';
 import { MINIGAMES } from '../data/minigames';
 import { ArtDefs, CatIcon } from '../ui/Icon';
+import { CardInfoLayer } from '../ui/CardInfo';
 
 const CATS: Category[] = ['life', 'stuff', 'places', 'ideas', 'happenings', 'special'];
 const NOTES_KEY = 'polypacks.cardnotes.v1';
@@ -72,6 +73,7 @@ export function CardIndex() {
   return (
     <div className="index">
       <ArtDefs />
+      <CardInfoLayer />
       <header className="ix-head">
         <div>
           <div className="eyebrow">Polypacks</div>

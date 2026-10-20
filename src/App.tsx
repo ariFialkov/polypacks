@@ -2,6 +2,7 @@ import { Home } from './ui/Home';
 import { Table } from './ui/Table';
 import { useGame } from './ui/store';
 import { ArtDefs } from './ui/Icon';
+import { CardInfoLayer } from './ui/CardInfo';
 
 export default function App() {
   const s = useGame();
@@ -15,6 +16,7 @@ export default function App() {
         <div className="grid-floor" />
       </div>
       {s.game ? <Table s={s} /> : <Home s={s} />}
+      <CardInfoLayer />
       <div className="toasts">
         {s.toasts.map((t) => (
           <div key={t.id} className={`toast ${t.tone ?? ''}`}>{t.text}</div>

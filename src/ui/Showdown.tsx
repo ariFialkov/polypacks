@@ -12,7 +12,7 @@ import { Card } from './Card';
 import { controller, type ComboFlash } from './store';
 
 export interface Mark {
-  kind: 'tie' | 'combo' | 'home' | 'lifted';
+  kind: 'tie' | 'combo' | 'home' | 'lifted' | 'ability';
   label?: string;
 }
 

@@ -1,6 +1,8 @@
 import { CATEGORY_META, TIER_META } from '../data/cards';
 import type { CardDef, Category, Rarity } from '../engine/types';
 import { CardArt, CatIcon } from './Icon';
+import { ABILITIES } from '../data/abilities';
+import { holdFired, holdHandlers } from './CardInfo';
 
 interface Props {
   def?: CardDef | null;
@@ -38,9 +40,12 @@ export function Card({ def, back, backCat, backRarity, onClick, selected, dim, v
   if (cat === 'special') cls.push('special');
   const shown = def ? (value ?? def.rating) : 0;
   const valCls = def && value !== undefined && value !== def.rating ? (value > def.rating ? 'val boost' : 'val hurt') : 'val';
-  const fx = def ? (badge ?? (def.ability ? 'ability' : null)) : null;
+  // the ability's own name sits under the art (callers can override with a status badge)
+  const fx = def ? (badge ?? (def.ability ? ABILITIES[def.ability].name : null)) : null;
+  const hold = holdHandlers(back ? null : def);
+  const tap = onClick ? () => (def && holdFired.has(def.id) ? undefined : onClick()) : undefined;
   return (
-    <div className={cls.join(' ')} style={{ ...style, ['--hue' as string]: meta.hue, ['--tier' as string]: neutral ? '#8f9bff' : TIER_META[rarity].color }} onClick={onClick} role={onClick ? 'button' : undefined}>
+    <div className={cls.join(' ')} style={{ ...style, ['--hue' as string]: meta.hue, ['--tier' as string]: neutral ? '#8f9bff' : TIER_META[rarity].color }} onClick={tap} role={onClick ? 'button' : undefined} {...hold}>
       <div className="flipper">
         <div className="face back">
           <div className="holo" />

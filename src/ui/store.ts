@@ -37,6 +37,8 @@ export interface Snapshot {
   showdown: boolean;
   /** a combo that was just completed: its cards flash on the board and the score pop names them */
   comboFlash: ComboFlash | null;
+  /** an ability that just fired: the card pulses, then its name sweeps across the screen */
+  abilityShow: AbilityShow | null;
   freshUids: string[]; // cards that just arrived (animate)
   toasts: Toast[];
   tool: 'delorean' | 'peek' | null;
@@ -44,6 +46,13 @@ export interface Snapshot {
   sound: boolean;
   menuOpen: boolean;
   version: number;
+}
+
+export interface AbilityShow {
+  side: 'you' | 'bot';
+  uid: string;
+  card: string;
+  key: number;
 }
 
 export interface ComboFlash {
@@ -122,7 +131,7 @@ class Controller {
       botStatus: '',
       botBusy: false,
       specialFx: null,
-      minigameShow: null, showdown: false, comboFlash: null,
+      minigameShow: null, showdown: false, comboFlash: null, abilityShow: null,
       freshUids: [],
       toasts: [],
       tool: null,
@@ -224,7 +233,8 @@ class Controller {
 
   home() {
     this.clearTimers();
-    this.commit({ game: null, match: null, opening: null, botBusy: false, tool: null, dealing: false, specialFx: null, menuOpen: false, minigameShow: null, showdown: false, comboFlash: null, freshUids: [] });
+    this.abilityQueue = [];
+    this.commit({ game: null, match: null, opening: null, botBusy: false, tool: null, dealing: false, specialFx: null, menuOpen: false, minigameShow: null, showdown: false, comboFlash: null, abilityShow: null, freshUids: [] });
   }
 
   start(mode: Mode, stakeChoice?: number) {
@@ -251,7 +261,7 @@ class Controller {
     writeNum(WALLET_KEY, wallet);
     const game = newGame(mode, randomSeed(), stake);
     sfx.cash();
-    this.commit({ game, wallet, match: null, opening: null, botBusy: false, tool: null, menuOpen: false, specialFx: null, minigameShow: null, showdown: false, comboFlash: null, freshUids: [] });
+    this.commit({ game, wallet, match: null, opening: null, botBusy: false, tool: null, menuOpen: false, specialFx: null, minigameShow: null, showdown: false, comboFlash: null, abilityShow: null, freshUids: [] });
     if (mode !== 'solitaire') this.beginMatch();
   }
 
@@ -286,6 +296,7 @@ class Controller {
     this.shownMinigames = 0;
     this.shownEvents = match.events.length;
     this.knownCombos = { you: [], bot: [] };
+    this.abilityQueue = [];
     this.commit({ game: { ...game, phase: 'match' }, match, opening: null, botStatus: game.mode === 'solitaire' ? '' : 'is shuffling…', tool: null, dealing: true, freshUids: [] });
     for (let i = 0; i < match.you.packs.length; i++) this.later(() => sfx.deal(), 120 + i * 90);
     this.later(() => this.commit({ dealing: false, botStatus: game.mode === 'solitaire' ? '' : 'is eyeing the packs…' }), 1900);
@@ -301,6 +312,9 @@ class Controller {
     const newEvents = m.events.slice(this.shownEvents);
     this.shownEvents = m.events.length;
     for (const e of newEvents) if (e.kind === 'ability' || e.kind === 'minigame') this.toast(e.text, e.side === 'you' ? 'good' : 'info');
+    // abilities that fired play one at a time; prompts and the opponent wait for them
+    for (const e of newEvents) if (e.kind === 'trigger' && e.uid && e.card) this.abilityQueue.push({ side: e.side, uid: e.uid, card: e.card, key: e.n * 1000 + Date.now() % 1000 });
+    if (!this.snap.abilityShow && this.abilityQueue.length) this.nextAbility();
     // a newly completed combo flashes its cards and names them by the score
     this.checkCombos(m);
     // minigames queue
@@ -313,11 +327,11 @@ class Controller {
     }
     if (m.phase === 'done') {
       // the showdown plays first; the result is settled when it is acknowledged
-      if (game.phase === 'match' && !this.snap.showdown) this.later(() => this.touch({ showdown: true }), 700);
+      if (game.phase === 'match' && !this.snap.showdown && !this.snap.abilityShow) this.later(() => !this.snap.abilityShow && this.touch({ showdown: true }), 700);
       else this.touch();
       return;
     }
-    if (botShouldAct(m) && !this.snap.minigameShow && !this.snap.opening) this.scheduleBot();
+    if (botShouldAct(m) && !this.snap.minigameShow && !this.snap.opening && !this.snap.abilityShow) this.scheduleBot();
     else this.touch();
   }
 
@@ -339,6 +353,21 @@ class Controller {
       this.touch({ botBusy: false, botStatus: 'picked.', freshUids: fresh });
       this.afterEngine();
     }, ms);
+  }
+
+  private abilityQueue: AbilityShow[] = [];
+  private nextAbility() {
+    const next = this.abilityQueue.shift();
+    if (!next) return;
+    sfx.special();
+    this.snap = { ...this.snap, abilityShow: next };
+    this.touch();
+    this.later(() => {
+      if (this.snap.abilityShow?.key !== next.key) return;
+      this.snap = { ...this.snap, abilityShow: null };
+      if (this.abilityQueue.length) this.nextAbility();
+      else this.afterEngine(); // resume: prompts show, the opponent moves
+    }, 2100);
   }
 
   private knownCombos: { you: string[]; bot: string[] } | null = null;
