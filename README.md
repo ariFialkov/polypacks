@@ -42,14 +42,16 @@ nothing), the ??? box resolves, and the showdown decides the final totals.
 weakest older card there (preferring one of its own kind: a new idea replaces the old idea), so you can
 always grab the card that completes a combo.
 
-**The showdown.** After the last pick, each side's best slotted place becomes its *home place*, and an
-animation scores, with the totals running up:
+**The showdown** plays out on the table after the last pick, with the totals running up on the board:
 
-- **Home turf (+30).** Home power is the place's rating plus 6 for every event in the set, 12 when the
-  event fits the place. The stronger home takes the bonus.
-- **Home ties (+5 each).** Every life, stuff or event card that shares a theme with the home place.
-  Places have two or three themes (the sea, money, the party, crime, power, the afterlife, suburbia...),
-  shown on the board and in the card index.
+- **Home place (+30).** Each side's best slotted place rises out of its slot over a dimmed table, the
+  two line up and crash together, and the winner returns home. Home power is the place's rating plus 6
+  for every event in the set, 12 when the event connects to the place. Each place has a *home field*
+  card (the Doghouse has the divorced dad): hold both and home place is yours outright.
+- **Home ties (+5 each).** One by one, every life, stuff or event card connected to the home place
+  lights up with a line to it and the name of the connection: a tsunami is an "island" card for the
+  Cayman Islands, a bad trip is a "security risk" at Area 51. Places have two or three themes (the sea,
+  money, the party, crime, power, the afterlife, suburbia...) plus a few one-off connections.
 - **Home combos.** 32 combos that only count when their place is your home (Las Vegas plus an open mic
   night or a flash mob, the Oval Office plus a military coup, and so on).
 

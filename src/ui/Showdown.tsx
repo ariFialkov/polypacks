@@ -1,220 +1,260 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { HOME_BONUS, HOME_TIE, PLACE_THEMES, THEME_LABEL } from '../data/places';
-import { deckOf, matchShowdown, type MatchState, type SideState } from '../engine/match';
+// The showdown plays out on the normal table: the two home places lift out of their slots over a dim
+// screen, clash, and the winner returns home with +30; then each home tie lights up on the board with
+// its connection to the place, and home combos flash their cards. Totals run up on the board's own
+// score badges as it goes.
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { HOME_BONUS, PLACE_LINKS } from '../data/places';
+import { CARD_BY_ID } from '../data/cards';
+import { deckOf, matchShowdown, type MatchState } from '../engine/match';
+import type { SideShowdown } from '../engine/finale';
 import type { CardInst, Side } from '../engine/types';
 import { Card } from './Card';
-import { controller } from './store';
+import { controller, type ComboFlash } from './store';
 
-type Ev =
-  | { t: 'title'; text: string; sub?: string }
-  | { t: 'home'; side: Side }
-  | { t: 'rally'; side: Side; uid: string; n: number }
-  | { t: 'turf'; winner: Side | 'tie' | null }
-  | { t: 'tie'; side: Side; uid: string; n: number }
-  | { t: 'hcombo'; side: Side; name: string; n: number }
-  | { t: 'end' };
-
-interface View {
-  totals: Record<Side, number>;
-  power: Record<Side, number>;
-  homeShown: Record<Side, boolean>;
-  lit: Record<string, string>;
-  banner: { text: string; sub?: string };
-  turf: Side | 'tie' | null | undefined;
-  combos: Record<Side, string[]>;
-  done: boolean;
+export interface Mark {
+  kind: 'tie' | 'combo' | 'home' | 'lifted';
+  label?: string;
 }
 
-/** A number that runs from its previous value to the new one, with a floating +N / -N. */
-function Running({ value, big, plain }: { value: number; big?: boolean; plain?: boolean }) {
-  const [shown, setShown] = useState(value);
-  const [delta, setDelta] = useState<{ n: number; k: number } | null>(null);
-  const from = useRef(value);
+export interface Playback {
+  totals: Record<Side, number>;
+  marks: Record<string, Mark>;
+  pop: ComboFlash | null;
+  layer: ReactNode;
+}
+
+type Step =
+  | { t: 'battle' }
+  | { t: 'tie'; side: Side; uid: string; homeUid: string; label: string; n: number }
+  | { t: 'hcombo'; side: Side; name: string; n: number; uids: string[]; cards: string[] }
+  | { t: 'end' };
+
+const rectOf = (uid: string) => document.querySelector(`[data-uid="${uid}"] .card`)?.getBoundingClientRect() ?? null;
+
+export function useShowdownPlayback(m: MatchState | null, active: boolean): Playback | null {
+  const sd = useMemo(() => (m && active ? matchShowdown(m) : null), [m, active]);
+  const steps = useMemo(() => {
+    if (!sd || !m) return [] as Step[];
+    const out: Step[] = [];
+    const sides: Side[] = sd.bot ? ['you', 'bot'] : ['you'];
+    const sideOf = (w: Side) => (w === 'you' ? sd.you : sd.bot!);
+    if (sides.some((w) => sideOf(w).home)) out.push({ t: 'battle' });
+    const ties = sides.map((w) => sideOf(w).ties.map((l) => ({ t: 'tie' as const, side: w, uid: l.uid, homeUid: sideOf(w).home!.uid, label: l.label ?? 'home tie', n: l.n })));
+    for (let i = 0; i < Math.max(0, ...ties.map((x) => x.length)); i++) for (const x of ties) if (x[i]) out.push(x[i]);
+    for (const w of sides) {
+      const ss = w === 'you' ? m.you : m.bot;
+      const slotted = deckOf(ss).slots.map((x) => x.card).filter((c): c is CardInst => !!c);
+      for (const k of sideOf(w).homeCombos) {
+        const inCombo = slotted.filter((c) => k.parts.some((alts) => alts.includes(c.def.id)));
+        out.push({ t: 'hcombo', side: w, name: k.name, n: k.bonus, uids: inCombo.map((c) => c.uid), cards: inCombo.map((c) => c.def.name) });
+      }
+    }
+    out.push({ t: 'end' });
+    return out;
+  }, [sd, m]);
+
+  const [i, setI] = useState(0);
+  const [turf, setTurf] = useState<Side | 'tie' | null | undefined>(undefined);
+  const [lifted, setLifted] = useState(false);
   useEffect(() => {
-    if (value === from.current) return;
-    const start = from.current;
-    setDelta({ n: value - start, k: Date.now() });
-    from.current = value;
-    const t0 = performance.now();
-    let raf = 0;
-    const step = (t: number) => {
-      const k = Math.min(1, (t - t0) / 520);
-      setShown(Math.round(start + (value - start) * (1 - Math.pow(1 - k, 3))));
-      if (k < 1) raf = requestAnimationFrame(step);
-    };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
-  }, [value]);
+    setI(0);
+    setTurf(undefined);
+  }, [sd]);
+
+  const step = steps[i];
+  // timing for everything except the battle, which advances itself
+  useEffect(() => {
+    if (!step || step.t === 'battle') return;
+    if (step.t === 'end') {
+      const id = setTimeout(() => controller.ackShowdown(), 1100);
+      return () => clearTimeout(id);
+    }
+    const id = setTimeout(() => setI((x) => x + 1), step.t === 'tie' ? 1150 : 1900);
+    return () => clearTimeout(id);
+  }, [step]);
+
+  if (!sd || !m || !step) return null;
+
+  // running totals: base, plus home place once decided, plus every tie and home combo played so far
+  const totals: Record<Side, number> = { you: sd.you.base, bot: sd.bot?.base ?? 0 };
+  const decided = turf !== undefined || steps.slice(0, i).some((x) => x.t === 'battle');
+  const winner = turf !== undefined ? turf : sd.homeWinner;
+  if (decided && (winner === 'you' || winner === 'bot')) totals[winner] += HOME_BONUS;
+  for (const x of steps.slice(0, i + 1)) if ((x.t === 'tie' || x.t === 'hcombo') && x !== undefined) totals[x.side] += x.n;
+
+  const marks: Record<string, Mark> = {};
+  let pop: ComboFlash | null = null;
+  let layer: ReactNode = null;
+  if (step.t === 'battle') {
+    if (lifted) for (const w of ['you', 'bot'] as Side[]) {
+      const h = w === 'you' ? sd.you.home : sd.bot?.home;
+      if (h) marks[h.uid] = { kind: 'lifted' };
+    }
+    layer = (
+      <HomeBattle
+        key={`battle-${m.seed}`}
+        m={m}
+        you={sd.you}
+        bot={sd.bot}
+        winner={sd.homeWinner}
+        onLift={setLifted}
+        onDecide={() => setTurf(sd.homeWinner)}
+        onDone={() => {
+          setLifted(false);
+          setTurf(sd.homeWinner);
+          setI((x) => x + 1);
+        }}
+      />
+    );
+  }
+  if (step.t === 'tie') {
+    marks[step.uid] = { kind: 'tie', label: `${step.label} +${step.n}` };
+    marks[step.homeUid] = { kind: 'home' };
+    layer = <TieLink key={`${step.uid}-${i}`} from={step.uid} to={step.homeUid} />;
+  }
+  if (step.t === 'hcombo') {
+    for (const u of step.uids) marks[u] = { kind: 'combo' };
+    pop = { side: step.side, name: `Home combo: ${step.name}`, bonus: step.n, uids: step.uids, cards: step.cards, home: true, key: i };
+  }
+  const skip = step.t !== 'end' && (
+    <button
+      className="btn ghost small sdskip"
+      onClick={() => {
+        setLifted(false);
+        setTurf(sd.homeWinner);
+        setI(steps.length - 1);
+      }}
+    >
+      Skip
+    </button>
+  );
+  return { totals, marks, pop, layer: (
+    <>
+      {layer}
+      {skip}
+    </>
+  ) };
+}
+
+/** The home places lift out, clash, and the winner goes home. */
+function HomeBattle({ m, you, bot, winner, onLift, onDecide, onDone }: { m: MatchState; you: SideShowdown; bot: SideShowdown | null; winner: Side | 'tie' | null; onLift: (v: boolean) => void; onDecide: () => void; onDone: () => void }) {
+  const contenders = (['bot', 'you'] as Side[]).filter((w) => (w === 'you' ? you.home : bot?.home));
+  const both = contenders.length === 2;
+  const [phase, setPhase] = useState<'start' | 'rise' | 'clash' | 'result' | 'return' | 'out'>('start');
+  const starts = useRef<Record<string, DOMRect | null>>({});
+  const [, force] = useState(0);
+  const sideOf = (w: Side) => (w === 'you' ? you : bot!);
+
+  useLayoutEffect(() => {
+    for (const w of contenders) starts.current[w] = rectOf(sideOf(w).home!.uid);
+    force((x) => x + 1);
+    onLift(true);
+    const t: number[] = [];
+    const at = (ms: number, f: () => void) => t.push(window.setTimeout(f, ms));
+    at(40, () => setPhase('rise'));
+    if (both) {
+      at(1700, () => setPhase('clash'));
+      at(2050, () => {
+        setPhase('result');
+        onDecide();
+      });
+      at(3900, () => {
+        for (const w of contenders) starts.current[w] = rectOf(sideOf(w).home!.uid) ?? starts.current[w];
+        setPhase('return');
+      });
+      at(4600, () => setPhase('out'));
+      at(4900, onDone);
+    } else {
+      at(1500, () => {
+        setPhase('result');
+        onDecide();
+      });
+      at(3200, () => setPhase('return'));
+      at(3900, () => setPhase('out'));
+      at(4200, onDone);
+    }
+    return () => t.forEach(clearTimeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const W = Math.round(Math.min(160, vw * 0.34, vh * 0.2));
+  const H = W * 1.4;
+  const cx = vw / 2;
+  const cy = vh / 2;
+  // every position is the card's top-left corner plus a scale of the fixed W-wide clone (transform-origin 0 0),
+  // so moving between the board slot and the centre animates smoothly
+  const box = (x: number, y: number, scale: number, opacity = 1) => ({ left: x - (W * scale) / 2, top: y - (H * scale) / 2, scale, opacity });
+  const posFor = (w: Side): { left: number; top: number; scale: number; opacity: number } => {
+    const r = starts.current[w];
+    const home = r ? { left: r.left, top: r.top, scale: r.width / W, opacity: 1 } : box(cx, cy, 1, 0);
+    const isWinner = winner === w || (!both && winner !== 'tie');
+    if (phase === 'start' || phase === 'out') return home;
+    if (phase === 'return') return isWinner || winner === 'tie' ? home : { ...home, opacity: 0 };
+    const gap = 26;
+    const linedY = !both ? cy : w === 'bot' ? cy - H / 2 - gap / 2 : cy + H / 2 + gap / 2;
+    if (phase === 'rise') return box(cx, linedY, 1);
+    if (phase === 'clash') return box(cx + (w === 'bot' ? -6 : 6), w === 'bot' ? cy - H * 0.12 : cy + H * 0.12, 1.04);
+    // result
+    if (winner === 'tie') return box(cx, linedY, 1);
+    return isWinner ? box(cx, cy - H * 0.15, 1.14) : box(cx, w === 'bot' ? cy - H * 0.8 : cy + H * 0.8, 0.6, 0);
+  };
+
+  const name = (w: Side) => (w === 'you' ? 'You' : m.bot.name);
+  const note =
+    winner === 'you' ? 'You have home place' : winner === 'bot' ? `${m.bot.name} has home place` : winner === 'tie' ? 'Home place is a draw' : '';
+  const why = (() => {
+    if (winner !== 'you' && winner !== 'bot') return 'No bonus either way.';
+    const s = sideOf(winner);
+    if (s.homeField) return `Home field advantage: ${CARD_BY_ID[PLACE_LINKS[s.home!.def.id].homeField].name} +${HOME_BONUS}`;
+    return `+${HOME_BONUS}`;
+  })();
+  const dim = phase !== 'start' && phase !== 'out' && phase !== 'return';
   return (
-    <span className={`running ${big ? 'big' : ''}`}>
-      <span className={plain ? 'num' : 'money'}>{plain ? shown : `$${shown}`}</span>
-      {delta && (
-        <span key={delta.k} className={`scoredelta ${delta.n > 0 ? 'up' : 'down'}`}>
-          {delta.n > 0 ? '+' : '−'}
-          {Math.abs(delta.n)}
-        </span>
-      )}
-    </span>
+    <div className={`hb ${phase} ${both ? 'both' : 'solo'}`}>
+      <div className={`hb-dim ${dim ? 'on' : ''}`} />
+      {contenders.map((w) => {
+        const p = posFor(w);
+        const s = sideOf(w);
+        const showInfo = phase === 'rise';
+        return (
+          <div key={w} className={`hb-card ${w} ${phase === 'result' && winner === w ? 'win' : ''}`} style={{ left: p.left, top: p.top, ['--hbw' as string]: `${W}px`, transform: `scale(${p.scale})`, opacity: p.opacity }}>
+            <Card def={s.home!.def} badge="home" />
+            <div className={`hb-info ${w} ${showInfo ? 'on' : ''}`}>
+              <b>{name(w)}</b>
+              <span className="pw">home power {s.power}</span>
+              <span className="sub">
+                {s.home!.def.name} {s.home!.def.rating}
+                {s.rally.length > 0 && ` · ${s.rally.length} event${s.rally.length > 1 ? 's' : ''} +${s.rally.reduce((t, r) => t + r.n, 0)}`}
+              </span>
+              {s.homeField && <span className="field">home field: {CARD_BY_ID[PLACE_LINKS[s.home!.def.id].homeField].name}</span>}
+            </div>
+          </div>
+        );
+      })}
+      {both && (phase === 'clash' || phase === 'result') && <div className="hb-burst" style={{ left: cx, top: cy }} />}
+      <div className={`hb-note ${phase === 'result' ? 'on' : ''}`} style={{ top: cy + H * 0.62 }}>
+        <h2>{note}</h2>
+        <p>{why}</p>
+      </div>
+    </div>
   );
 }
 
-export function ShowdownOverlay({ m }: { m: MatchState }) {
-  const sd = useMemo(() => matchShowdown(m), [m]);
-  const solo = !sd.bot;
-  const sides: Side[] = solo ? ['you'] : ['bot', 'you'];
-  const sideOf = (who: Side) => (who === 'you' ? sd.you : sd.bot!);
-
-  const events = useMemo(() => {
-    const ev: Ev[] = [{ t: 'title', text: 'Showdown', sub: 'Every pick is in. Now the places have their say.' }];
-    const homes = sides.filter((w) => sideOf(w).home);
-    if (homes.length) {
-      ev.push({ t: 'title', text: solo ? 'Your home' : 'Home turf', sub: solo ? 'Your best place anchors the set.' : `Home power is the place plus every event that rallies for it. The stronger home takes +${HOME_BONUS}.` });
-      for (const w of homes) ev.push({ t: 'home', side: w });
-      const rallies = sides.map((w) => sideOf(w).rally.map((r) => ({ t: 'rally' as const, side: w, uid: r.uid, n: r.n })));
-      for (let i = 0; i < Math.max(0, ...rallies.map((r) => r.length)); i++) for (const r of rallies) if (r[i]) ev.push(r[i]);
-      if (!solo) ev.push({ t: 'turf', winner: sd.homeWinner });
-    }
-    const ties = sides.map((w) => sideOf(w).ties.map((r) => ({ t: 'tie' as const, side: w, uid: r.uid, n: r.n })));
-    if (ties.some((x) => x.length)) {
-      ev.push({ t: 'title', text: 'Home ties', sub: `+${HOME_TIE} for every card that fits its home place.` });
-      for (let i = 0; i < Math.max(0, ...ties.map((r) => r.length)); i++) for (const r of ties) if (r[i]) ev.push(r[i]);
-    }
-    const hc = sides.flatMap((w) => sideOf(w).homeCombos.map((k) => ({ t: 'hcombo' as const, side: w, name: k.name, n: k.bonus })));
-    if (hc.length) {
-      ev.push({ t: 'title', text: 'Home combos', sub: 'Combos that only count at home.' });
-      ev.push(...hc);
-    }
-    ev.push({ t: 'end' });
-    return ev;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sd]);
-
-  const [i, setI] = useState(0);
-  useEffect(() => {
-    if (i >= events.length - 1) return;
-    const e = events[i];
-    const ms = e.t === 'title' ? 1500 : e.t === 'turf' ? 1400 : e.t === 'home' ? 900 : 620;
-    const id = setTimeout(() => setI((x) => x + 1), ms);
-    return () => clearTimeout(id);
-  }, [i, events]);
-
-  const view: View = useMemo(() => {
-    const v: View = {
-      totals: { you: sd.you.base, bot: sd.bot?.base ?? 0 },
-      power: { you: 0, bot: 0 },
-      homeShown: { you: false, bot: false },
-      lit: {},
-      banner: { text: '' },
-      turf: undefined,
-      combos: { you: [], bot: [] },
-      done: false,
-    };
-    for (const e of events.slice(0, i + 1)) {
-      if (e.t === 'title') v.banner = { text: e.text, sub: e.sub };
-      if (e.t === 'home') {
-        v.homeShown[e.side] = true;
-        v.power[e.side] = sideOf(e.side).home!.def.rating;
-      }
-      if (e.t === 'rally') {
-        v.power[e.side] += e.n;
-        v.lit[e.uid] = v.lit[e.uid] ? `${v.lit[e.uid]} · +${e.n} power` : `+${e.n} power`;
-      }
-      if (e.t === 'turf') {
-        v.turf = e.winner;
-        if (e.winner === 'you' || e.winner === 'bot') v.totals[e.winner] += HOME_BONUS;
-        v.banner = {
-          text: e.winner === 'you' ? 'You take home turf' : e.winner === 'bot' ? `${m.bot.name} takes home turf` : e.winner === 'tie' ? 'Home turf is a draw' : 'Nobody has a home',
-          sub: e.winner === 'you' || e.winner === 'bot' ? `+${HOME_BONUS} to the stronger home.` : 'No bonus either way.',
-        };
-      }
-      if (e.t === 'tie') {
-        v.totals[e.side] += e.n;
-        v.lit[e.uid] = v.lit[e.uid] ? `${v.lit[e.uid]} · +${e.n}` : `+${e.n}`;
-      }
-      if (e.t === 'hcombo') {
-        v.totals[e.side] += e.n;
-        v.combos[e.side].push(`${e.name} +${e.n}`);
-      }
-      if (e.t === 'end') {
-        v.done = true;
-        const y = sd.you.total;
-        const b = sd.bot?.total ?? 0;
-        v.banner = solo ? { text: `Set value $${y}` } : { text: y > b ? 'You take it' : b > y ? `${m.bot.name} takes it` : 'Dead heat', sub: `$${y} to $${b}` };
-      }
-    }
-    return v;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [i, events, sd]);
-
-  const panel = (who: Side) => {
-    const ss: SideState = who === 'you' ? m.you : m.bot;
-    const s = sideOf(who);
-    const cards = deckOf(ss)
-      .slots.map((x) => x.card)
-      .filter((c): c is CardInst => !!c && c.uid !== s.home?.uid);
-    const wonTurf = view.turf === who;
-    return (
-      <section key={who} className={`sdpanel ${who} ${wonTurf ? 'turf' : ''}`}>
-        <header>
-          <span className="nm">{who === 'you' ? 'You' : m.bot.name}</span>
-          <Running value={view.totals[who]} big />
-        </header>
-        <div className="sdbody">
-          <div className={`sdhome ${view.homeShown[who] ? 'shown' : ''}`}>
-            {s.home ? (
-              <>
-                <Card def={s.home.def} className="sm" badge="home" />
-                <div className="power">
-                  <span className="lbl">home power</span>
-                  <Running value={view.power[who]} plain />
-                </div>
-                <div className="themes">{(PLACE_THEMES[s.home.def.id] ?? []).map((t) => THEME_LABEL[t]).join(' · ')}</div>
-              </>
-            ) : (
-              <div className="nohome">No place, no home</div>
-            )}
-          </div>
-          <div className="sdcards">
-            {cards.map((c) => (
-              <div key={c.uid} className={`sdcell ${view.lit[c.uid] ? 'lit' : ''}`}>
-                <Card def={c.def} className="mini" />
-                {view.lit[c.uid] && <span className="sdtag">{view.lit[c.uid]}</span>}
-              </div>
-            ))}
-          </div>
-        </div>
-        {view.combos[who].length > 0 && (
-          <div className="sdcombos">
-            {view.combos[who].map((t) => (
-              <span key={t} className="combochip">
-                {t}
-              </span>
-            ))}
-          </div>
-        )}
-      </section>
-    );
-  };
-
+/** A glowing line from a tied card to its home place. */
+function TieLink({ from, to }: { from: string; to: string }) {
+  const [pts, setPts] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+  useLayoutEffect(() => {
+    const a = rectOf(from);
+    const b = rectOf(to);
+    if (a && b) setPts({ x1: a.left + a.width / 2, y1: a.top + a.height / 2, x2: b.left + b.width / 2, y2: b.top + b.height / 2 });
+  }, [from, to]);
+  if (!pts) return null;
   return (
-    <div className="overlay showdown">
-      {!solo && panel('bot')}
-      <div className="sdbanner" key={view.banner.text}>
-        <h2>{view.banner.text}</h2>
-        {view.banner.sub && <p>{view.banner.sub}</p>}
-        <div className="ctarow">
-          {view.done ? (
-            <button className="btn primary glow" onClick={() => controller.ackShowdown()}>
-              See the result
-            </button>
-          ) : (
-            <button className="btn ghost small" onClick={() => setI(events.length - 1)}>
-              Skip
-            </button>
-          )}
-        </div>
-      </div>
-      {panel('you')}
-    </div>
+    <svg className="tielink" width="100%" height="100%">
+      <line x1={pts.x1} y1={pts.y1} x2={pts.x2} y2={pts.y2} />
+      <circle cx={pts.x2} cy={pts.y2} r="6" />
+    </svg>
   );
 }

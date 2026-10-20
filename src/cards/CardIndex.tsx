@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { CARDS, CARD_BY_ID, CATEGORY_META, TIER_META, tierScore } from '../data/cards';
 import { CARD_ART_NAMES } from '../data/art';
 import { COMBOS, comboHints, findCombos } from '../data/combos';
-import { EVENT_RALLY, EVENT_RALLY_MATCH, HOME_BONUS, HOME_TIE, THEME_LABEL, themesOf } from '../data/places';
+import { EVENT_RALLY, EVENT_RALLY_MATCH, HOME_BONUS, HOME_TIE, PLACE_LINKS, THEME_LABEL, homeFieldPlace, themesOf } from '../data/places';
 import type { CardDef, Category, Rarity } from '../engine/types';
 import { Card } from '../ui/Card';
 import { ABILITIES } from '../data/abilities';
@@ -142,7 +142,9 @@ export function CardIndex() {
                   <dt>category</dt><dd>{CATEGORY_META[c.cat].label}</dd>
                   <dt>rating</dt><dd>{c.rating} <span className="sub">(tier score {tierScore(c)})</span></dd>
                   {extraText(c) && (<><dt>ability</dt><dd>{extraText(c)}</dd></>)}
-                  {themesOf(c.id).length > 0 && (<><dt>{c.cat === 'places' ? 'home themes' : 'fits'}</dt><dd>{themesOf(c.id).map((t) => THEME_LABEL[t]).join(', ')}</dd></>)}
+                  {themesOf(c.id).length > 0 && (<><dt>{c.cat === 'places' ? 'home themes' : 'fits'}</dt><dd>{c.cat === 'places' ? themesOf(c.id).map((t) => `${THEME_LABEL[t]} ("${PLACE_LINKS[c.id]?.themes[t] ?? ''}")`).join(', ') : themesOf(c.id).map((t) => THEME_LABEL[t]).join(', ')}</dd></>)}
+                  {c.cat === 'places' && PLACE_LINKS[c.id] && (<><dt>home field</dt><dd>{CARD_BY_ID[PLACE_LINKS[c.id].homeField].name}{PLACE_LINKS[c.id].extra ? ` · also ${Object.entries(PLACE_LINKS[c.id].extra!).map(([id, l]) => `${CARD_BY_ID[id].name} ("${l}")`).join(', ')}` : ''}</dd></>)}
+                  {homeFieldPlace(c.id) && (<><dt>home field of</dt><dd>{CARD_BY_ID[homeFieldPlace(c.id)!].name}: hold both and home place is yours</dd></>)}
                   <dt>blurb</dt><dd>{c.blurb}</dd>
                   <dt>art</dt><dd><code>{art?.main}</code> · scene <code>{art?.scene}</code></dd>
                 </dl>
@@ -159,7 +161,7 @@ export function CardIndex() {
         <p className="sub">
           Home combos (marked home) only count when their place is your home place: your best slotted place. After the last pick, the showdown scores home
           turf (+{HOME_BONUS} to the stronger home; home power is the place rating plus {EVENT_RALLY} per event in the set, {EVENT_RALLY + EVENT_RALLY_MATCH} if the
-          event fits the place), home ties (+{HOME_TIE} for each life, stuff or event card that fits the home place) and home combos.
+          event fits the place), home ties (+{HOME_TIE} for each life, stuff or event card connected to the home place) and home combos. Each place has a home field card: hold both and home place is yours outright.
         </p>
         <div className="combo-list">
           {COMBOS.map((combo) => {

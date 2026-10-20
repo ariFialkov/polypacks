@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Rng } from './rng';
 import { CARDS, CARD_BY_ID } from '../data/cards';
-import { PLACE_THEMES, THEMES, HOME_BONUS } from '../data/places';
+import { PLACE_LINKS, PLACE_THEMES, THEMES, HOME_BONUS, tieLabel } from '../data/places';
 import { buildDeck } from './deck';
 import { showdown } from './finale';
 import { COMBOS, findCombos } from '../data/combos';
@@ -115,6 +115,30 @@ describe('places, combos and slots', () => {
     for (const c of CARDS.filter((x) => x.cat === 'ideas')) expect(COMBOS.some((k) => !k.home && k.parts.some((alts) => alts.includes(c.id))), c.id).toBe(true);
     for (const k of COMBOS.filter((x) => x.home)) expect(k.parts[0]).toEqual([k.home]);
     expect(findCombos(['las-vegas', 'open-mic-night']).some((k) => k.id === 'home-vegas')).toBe(false);
+  });
+  it('gives every place a unique home field card and a named connection per theme', () => {
+    const fields = new Set<string>();
+    for (const c of CARDS.filter((x) => x.cat === 'places')) {
+      const l = PLACE_LINKS[c.id];
+      expect(l, c.id).toBeTruthy();
+      const f = CARD_BY_ID[l.homeField];
+      expect(f && ['life', 'stuff', 'happenings'].includes(f.cat), `${c.id} home field ${l.homeField}`).toBe(true);
+      expect(fields.has(l.homeField), `duplicate home field ${l.homeField}`).toBe(false);
+      fields.add(l.homeField);
+      for (const t of PLACE_THEMES[c.id]) expect(l.themes[t], `${c.id} ${t}`).toBeTruthy();
+      for (const id of Object.keys(l.extra ?? {})) expect(CARD_BY_ID[id], id).toBeTruthy();
+    }
+    expect(tieLabel('cayman-islands', 'tsunami')).toBe('island');
+    expect(tieLabel('the-doghouse', 'divorced-dad')).toBe('home field advantage');
+    expect(tieLabel('area-51', 'bad-trip')).toBe('security risk');
+  });
+  it('gives home place to a home field pair over a stronger home', () => {
+    const side = (ids: string[]) => ({ cards: ids.map((id, i) => ({ uid: `${id}-${i}`, def: CARD_BY_ID[id] })), cancelledCombos: [], flags: { godMode: false } });
+    const sd = showdown(side(['the-doghouse', 'divorced-dad']), side(['las-vegas', 'tornado', 'flash-mob', 'gender-reveal']));
+    expect(sd.you.homeField).toBe(true);
+    expect(sd.bot!.power).toBeGreaterThan(sd.you.power);
+    expect(sd.homeWinner).toBe('you');
+    expect(sd.you.ties.map((t) => t.label)).toContain('home field advantage');
   });
   it('slots the newest card, replacing the old one of its kind', () => {
     const inst = (id: string, n: number) => ({ uid: `u${n}`, def: CARD_BY_ID[id] });

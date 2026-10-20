@@ -10,13 +10,13 @@ import { MODE_INFO, seriesPrize } from '../engine/game';
 import { hashString } from '../engine/rng';
 import type { CardDef, CardInst, MainCategory, Side } from '../engine/types';
 import { Card } from './Card';
-import { ShowdownOverlay } from './Showdown';
+import { useShowdownPlayback, type Mark } from './Showdown';
 import { sideShowdown } from '../engine/finale';
 import { HOME_TIE, PLACE_THEMES, THEME_LABEL } from '../data/places';
 import { Wallet } from './Home';
 import { Art, CatIcon, Ui } from './Icon';
 import { PackArt, PackTile } from './PackTile';
-import { controller, type Snapshot } from './store';
+import { controller, type ComboFlash, type Snapshot } from './store';
 
 const ROW1 = ['place', 'event', 'flex'];
 const ROW2 = ['life1', 'life2', 'stuff1', 'stuff2', 'stuff3', 'idea'];
@@ -30,6 +30,7 @@ export function Table({ s }: { s: Snapshot }) {
   const m = s.match;
   const solo = game.mode === 'solitaire';
   const BotAvatar = BOT_AVATARS[hashString(game.bot.name) % BOT_AVATARS.length];
+  const pb = useShowdownPlayback(m, !!(m && s.showdown && m.phase === 'done' && !s.minigameShow));
 
   if (!m) {
     return (
@@ -46,6 +47,11 @@ export function Table({ s }: { s: Snapshot }) {
   const youLeft = unopened(m.you).length;
   const youDeck = deckOf(m.you);
   const botDeck = solo ? null : deckOf(m.bot);
+  // card marks: the showdown's, or a just-completed combo's
+  const marks: Record<string, Mark> = { ...(pb?.marks ?? {}) };
+  if (!pb && s.comboFlash) for (const u of s.comboFlash.uids) marks[u] = { kind: 'combo' };
+  const pop: ComboFlash | null = pb ? pb.pop : s.comboFlash;
+  const scoreOf = (w: Side) => (pb ? pb.totals[w] : m.phase === 'done' && !s.showdown ? matchTotals(m)[w] : sideScore(w === 'you' ? m.you : m.bot));
 
   return (
     <div className={`table ${solo ? 'solo' : 'versus'} ${s.dealing ? 'dealing' : ''} phase-${m.phase} ${yourTurn ? 'your-turn' : ''}`}>
@@ -63,12 +69,13 @@ export function Table({ s }: { s: Snapshot }) {
             </div>
             {game.mode === 'margin' && <div className="bank">${game.bot.money}</div>}
             <ComboChips side={m.bot} />
-            <ScoreBadge key={m.seed} value={m.phase === 'done' && !s.showdown ? matchTotals(m).bot : sideScore(m.bot)} turn={m.turn === 'bot' && m.phase === 'draft'} />
+            <ScoreBadge key={m.seed} value={scoreOf('bot')} turn={m.turn === 'bot' && m.phase === 'draft'} />
+            {pop?.side === 'bot' && <ComboPop pop={pop} />}
           </header>
           <div className="rows mirrored">
-            <SlotRow ids={ROW2} deck={botDeck} side={m.bot} m={m} fresh={s.freshUids} />
-            {botDeck.slots.some((x) => SPECIAL_IDS.includes(x.slot.id)) && <SlotRow ids={SPECIAL_IDS} deck={botDeck} side={m.bot} m={m} fresh={s.freshUids} special />}
-            <SlotRow ids={ROW1} deck={botDeck} side={m.bot} m={m} fresh={s.freshUids} />
+            <SlotRow ids={ROW2} deck={botDeck} side={m.bot} m={m} fresh={s.freshUids} marks={marks} />
+            {botDeck.slots.some((x) => SPECIAL_IDS.includes(x.slot.id)) && <SlotRow ids={SPECIAL_IDS} deck={botDeck} side={m.bot} m={m} fresh={s.freshUids} marks={marks} special />}
+            <SlotRow ids={ROW1} deck={botDeck} side={m.bot} m={m} fresh={s.freshUids} marks={marks} />
           </div>
           <div className="horizonrow">
             <div className="packrow">
@@ -112,9 +119,9 @@ export function Table({ s }: { s: Snapshot }) {
           <Ashes side={m.you} />
         </div>
         <div className="rows">
-          <SlotRow ids={ROW1} deck={youDeck} side={m.you} m={m} fresh={s.freshUids} you yourTurn={yourTurn} />
-          {youDeck.slots.some((x) => SPECIAL_IDS.includes(x.slot.id)) && <SlotRow ids={SPECIAL_IDS} deck={youDeck} side={m.you} m={m} fresh={s.freshUids} you yourTurn={yourTurn} special />}
-          <SlotRow ids={ROW2} deck={youDeck} side={m.you} m={m} fresh={s.freshUids} you yourTurn={yourTurn} />
+          <SlotRow ids={ROW1} deck={youDeck} side={m.you} m={m} fresh={s.freshUids} marks={marks} you yourTurn={yourTurn} />
+          {youDeck.slots.some((x) => SPECIAL_IDS.includes(x.slot.id)) && <SlotRow ids={SPECIAL_IDS} deck={youDeck} side={m.you} m={m} fresh={s.freshUids} marks={marks} you yourTurn={yourTurn} special />}
+          <SlotRow ids={ROW2} deck={youDeck} side={m.you} m={m} fresh={s.freshUids} marks={marks} you yourTurn={yourTurn} />
         </div>
         <header className="boardhead">
           <div className="avatar you">
@@ -133,7 +140,8 @@ export function Table({ s }: { s: Snapshot }) {
           )}
           {game.mode === 'margin' && <div className="bank">${game.you.money}</div>}
           <ComboChips side={m.you} />
-          <ScoreBadge key={m.seed} value={m.phase === 'done' && !s.showdown ? matchTotals(m).you : sideScore(m.you)} turn={yourTurn} label="set" />
+          <ScoreBadge key={m.seed} value={scoreOf('you')} turn={yourTurn} label="set" />
+          {pop?.side === 'you' && <ComboPop pop={pop} />}
         </header>
       </section>
 
@@ -141,7 +149,7 @@ export function Table({ s }: { s: Snapshot }) {
       {s.specialFx && <SpecialFx def={s.specialFx} />}
       {prompt && prompt.kind !== 'peek' && !s.opening && <PromptOverlay prompt={prompt} m={m} />}
       {s.minigameShow && <MinigameOverlay mg={s.minigameShow} m={m} />}
-      {s.showdown && m.phase === 'done' && !s.minigameShow && <ShowdownOverlay m={m} />}
+      {pb?.layer}
       {(game.phase === 'roundResult' || game.phase === 'gameOver') && <ResultOverlay s={s} />}
     </div>
   );
@@ -260,6 +268,18 @@ function MiniBoard({ side, name, you }: { side: SideState; name: string; you?: b
   );
 }
 
+/** The score pop for a combo: its name and bonus, and the cards that made it. */
+function ComboPop({ pop }: { pop: ComboFlash }) {
+  return (
+    <div className={`combopop ${pop.home ? 'home' : ''}`} key={pop.key}>
+      <b>
+        {pop.name} +{pop.bonus}
+      </b>
+      <span>{pop.cards.join(' + ')}</span>
+    </div>
+  );
+}
+
 function ComboChips({ side }: { side: SideState }) {
   const combos = deckOf(side).combos;
   if (!combos.length) return null;
@@ -288,20 +308,20 @@ function Ashes({ side }: { side: SideState }) {
 }
 
 // ───────────── slots ─────────────
-function SlotRow({ ids, deck, side, m, fresh, you, yourTurn, special }: { ids: string[]; deck: ReturnType<typeof deckOf>; side: SideState; m: MatchState; fresh: string[]; you?: boolean; yourTurn?: boolean; special?: boolean }) {
+function SlotRow({ ids, deck, side, m, fresh, marks, you, yourTurn, special }: { ids: string[]; deck: ReturnType<typeof deckOf>; side: SideState; m: MatchState; fresh: string[]; marks: Record<string, Mark>; you?: boolean; yourTurn?: boolean; special?: boolean }) {
   const slots = deck.slots.filter((x) => ids.includes(x.slot.id));
   if (!slots.length) return null;
   const homeUid = slots.some((x) => x.card?.def.cat === 'places') ? sideShowdown(side).home?.uid : undefined;
   return (
     <div className={`slotrow ${special ? 'r3' : ids === ROW1 ? 'r1' : 'r2'}`}>
       {slots.map((slot, i) => (
-        <Slot key={slot.slot.id} slot={slot} i={i} side={side} m={m} fresh={fresh} you={!!you} yourTurn={!!yourTurn} homeUid={homeUid} />
+        <Slot key={slot.slot.id} slot={slot} i={i} side={side} m={m} fresh={fresh} you={!!you} yourTurn={!!yourTurn} homeUid={homeUid} mark={slot.card ? marks[slot.card.uid] : undefined} />
       ))}
     </div>
   );
 }
 
-function Slot({ slot, i, side, m, fresh, you, yourTurn, homeUid }: { slot: DeckSlot; i: number; side: SideState; m: MatchState; fresh: string[]; you: boolean; yourTurn: boolean; homeUid?: string }) {
+function Slot({ slot, i, side, m, fresh, you, yourTurn, homeUid, mark }: { slot: DeckSlot; i: number; side: SideState; m: MatchState; fresh: string[]; you: boolean; yourTurn: boolean; homeUid?: string; mark?: Mark }) {
   const id = slot.slot.id;
   const card = slot.card;
   let content: React.ReactNode;
@@ -329,8 +349,9 @@ function Slot({ slot, i, side, m, fresh, you, yourTurn, homeUid }: { slot: DeckS
   }
   void m;
   return (
-    <div className={`slot s-${id}`} style={{ ['--i' as string]: i }}>
+    <div className={`slot s-${id} ${mark ? `mark-${mark.kind}` : ''}`} style={{ ['--i' as string]: i }} data-uid={card?.uid}>
       {content}
+      {mark?.label && <span className="markchip">{mark.label}</span>}
       {you && (
         <span className="slotlabel">
           {slot.slot.special ? 'SP · ' : ''}

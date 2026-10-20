@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { PACK_PRICES, answer, botShouldAct, flipCat, openPack, pickCard, runBotTurn, unopened, useDelorean, usePeek, type Answer, type MatchState, type MinigameOutcome } from '../engine/match';
+import { PACK_PRICES, answer, botShouldAct, deckOf, flipCat, openPack, pickCard, runBotTurn, unopened, useDelorean, usePeek, type Answer, type MatchState, type MinigameOutcome, type SideState } from '../engine/match';
 import { attachBot, cashOut, newGame, nextRound, seriesPrize, settleRound, solitaireResult, startMatch, STAKE_OPTIONS, type GameState, type Mode, STAKES } from '../engine/game';
 import { randomSeed } from '../engine/rng';
 import type { CardDef, MainCategory } from '../engine/types';
@@ -35,6 +35,8 @@ export interface Snapshot {
   minigameShow: MinigameOutcome | null;
   /** the end-of-match showdown is playing (the result waits for it) */
   showdown: boolean;
+  /** a combo that was just completed: its cards flash on the board and the score pop names them */
+  comboFlash: ComboFlash | null;
   freshUids: string[]; // cards that just arrived (animate)
   toasts: Toast[];
   tool: 'delorean' | 'peek' | null;
@@ -42,6 +44,28 @@ export interface Snapshot {
   sound: boolean;
   menuOpen: boolean;
   version: number;
+}
+
+export interface ComboFlash {
+  side: 'you' | 'bot';
+  name: string;
+  bonus: number;
+  uids: string[];
+  cards: string[];
+  home?: boolean;
+  key: number;
+}
+
+/** The combos a side has active right now, with the slotted cards that make each one. */
+export function activeComboCards(ss: SideState): { id: string; name: string; bonus: number; uids: string[]; cards: string[] }[] {
+  const deck = deckOf(ss);
+  const slotted = deck.slots.map((x) => x.card).filter((c): c is NonNullable<typeof c> => !!c);
+  return deck.combos
+    .filter((k) => !ss.cancelledCombos.includes(k.id))
+    .map((k) => {
+      const inCombo = slotted.filter((c) => k.parts.some((alts) => alts.includes(c.def.id)));
+      return { id: k.id, name: k.name, bonus: k.bonus, uids: inCombo.map((c) => c.uid), cards: inCombo.map((c) => c.def.name) };
+    });
 }
 
 const SAVE_KEY = 'polypacks.save.v3';
@@ -98,7 +122,7 @@ class Controller {
       botStatus: '',
       botBusy: false,
       specialFx: null,
-      minigameShow: null, showdown: false,
+      minigameShow: null, showdown: false, comboFlash: null,
       freshUids: [],
       toasts: [],
       tool: null,
@@ -200,7 +224,7 @@ class Controller {
 
   home() {
     this.clearTimers();
-    this.commit({ game: null, match: null, opening: null, botBusy: false, tool: null, dealing: false, specialFx: null, menuOpen: false, minigameShow: null, showdown: false, freshUids: [] });
+    this.commit({ game: null, match: null, opening: null, botBusy: false, tool: null, dealing: false, specialFx: null, menuOpen: false, minigameShow: null, showdown: false, comboFlash: null, freshUids: [] });
   }
 
   start(mode: Mode, stakeChoice?: number) {
@@ -227,7 +251,7 @@ class Controller {
     writeNum(WALLET_KEY, wallet);
     const game = newGame(mode, randomSeed(), stake);
     sfx.cash();
-    this.commit({ game, wallet, match: null, opening: null, botBusy: false, tool: null, menuOpen: false, specialFx: null, minigameShow: null, showdown: false, freshUids: [] });
+    this.commit({ game, wallet, match: null, opening: null, botBusy: false, tool: null, menuOpen: false, specialFx: null, minigameShow: null, showdown: false, comboFlash: null, freshUids: [] });
     if (mode !== 'solitaire') this.beginMatch();
   }
 
@@ -261,6 +285,7 @@ class Controller {
     const match = startMatch(game);
     this.shownMinigames = 0;
     this.shownEvents = match.events.length;
+    this.knownCombos = { you: [], bot: [] };
     this.commit({ game: { ...game, phase: 'match' }, match, opening: null, botStatus: game.mode === 'solitaire' ? '' : 'is shuffling…', tool: null, dealing: true, freshUids: [] });
     for (let i = 0; i < match.you.packs.length; i++) this.later(() => sfx.deal(), 120 + i * 90);
     this.later(() => this.commit({ dealing: false, botStatus: game.mode === 'solitaire' ? '' : 'is eyeing the packs…' }), 1900);
@@ -276,6 +301,8 @@ class Controller {
     const newEvents = m.events.slice(this.shownEvents);
     this.shownEvents = m.events.length;
     for (const e of newEvents) if (e.kind === 'ability' || e.kind === 'minigame') this.toast(e.text, e.side === 'you' ? 'good' : 'info');
+    // a newly completed combo flashes its cards and names them by the score
+    this.checkCombos(m);
     // minigames queue
     if (m.minigames.length > this.shownMinigames && !this.snap.minigameShow) {
       const mg = m.minigames[this.shownMinigames];
@@ -312,6 +339,25 @@ class Controller {
       this.touch({ botBusy: false, botStatus: 'picked.', freshUids: fresh });
       this.afterEngine();
     }, ms);
+  }
+
+  private knownCombos: { you: string[]; bot: string[] } | null = null;
+  private checkCombos(m: MatchState) {
+    const now = { you: activeComboCards(m.you), bot: m.solo ? [] : activeComboCards(m.bot) };
+    const known = this.knownCombos;
+    this.knownCombos = { you: now.you.map((k) => k.id), bot: now.bot.map((k) => k.id) };
+    if (!known) return; // first look after a restore: nothing is new
+    for (const side of ['you', 'bot'] as const) {
+      const fresh = now[side].find((k) => !known[side].includes(k.id));
+      if (!fresh) continue;
+      const flash: ComboFlash = { side, name: fresh.name, bonus: fresh.bonus, uids: fresh.uids, cards: fresh.cards, key: Date.now() };
+      sfx.special();
+      this.snap = { ...this.snap, comboFlash: flash };
+      this.later(() => {
+        if (this.snap.comboFlash?.key === flash.key) this.touch({ comboFlash: null });
+      }, 3200);
+      return;
+    }
   }
 
   ackShowdown() {

@@ -35,16 +35,15 @@ async function playMatch(tag, opts = {}) {
   let picks = 0;
   for (let step = 0; step < 160; step++) {
     if (await page.locator('.overlay.result').count()) break;
-    const sd = page.locator('.overlay.showdown');
-    if (await sd.count()) {
-      await page.waitForTimeout(3200);
-      await shot(`${tag}-showdown`);
-      const skip = sd.getByRole('button', { name: 'Skip' });
-      if (await skip.count()) await skip.click();
-      await page.waitForTimeout(700);
-      await shot(`${tag}-showdown-end`);
-      await sd.getByRole('button', { name: 'See the result' }).click();
-      await page.waitForTimeout(600);
+    const skipBtn = page.locator('.sdskip');
+    if (await skipBtn.count()) {
+      // the showdown plays on the table: catch the home place clash and a home tie, then skip ahead
+      await page.waitForTimeout(2300);
+      await shot(`${tag}-clash`);
+      await page.waitForTimeout(3600);
+      await shot(`${tag}-ties`);
+      if (await skipBtn.count()) await skipBtn.click().catch(() => {});
+      await page.waitForTimeout(1800);
       continue;
     }
     const mg = page.locator('.overlay.minigame');

@@ -108,7 +108,7 @@ export function Home({ s }: { s: Snapshot }) {
             <h3>Turns</h3>
             <p>You open a pack and take one card, then your opponent does the same. Every pick lands face up in your set: Place, Event, Place-or-Event on top; 2 Life, 3 Stuff, 1 Idea below. Combos add value and can unlock special slots. Against an opponent, empty slots at the end get a random common card. In Solitaire they stay empty and score nothing.</p>
             <h3>Showdown</h3>
-            <p>After the last pick your best place becomes your home. Home power is its rating plus 6 for every event in your set (12 if the event fits the place); the stronger home takes +30. Every life, stuff or event card that fits your home's themes adds +5, and home combos only count at home. The newest card always takes a slot, replacing the weakest older card of its kind when the slots are full.</p>
+            <p>After the last pick both home places rise and clash: home power is the place's rating plus 6 for every event in your set (12 if the event connects to the place), and the stronger home takes home place, +30. Each place has a home field card; hold both and home place is yours outright. Then every card connected to your home (an island card for the Cayman Islands, a divorced dad for the doghouse) adds +5, and home combos only count at home. The newest card always takes a slot, replacing the weakest older card of its kind when the slots are full.</p>
             <h3>Abilities</h3>
             <p>Some cards do something when picked: burn, steal, swap, protect, peek, revive, cancel a combo. A card that changes hands fires its ability again for its new owner. Area 51 can classify a card so nobody can touch or see it.</p>
             <h3>Minigames</h3>
