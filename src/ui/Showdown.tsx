@@ -23,6 +23,8 @@ export interface Playback {
   layer: ReactNode;
   /** the Skip control, shown in the table's centre lane */
   skip: ReactNode;
+  /** who takes it: flashed in the centre lane only once everything has played out */
+  verdict: ReactNode;
 }
 
 type Step =
@@ -68,7 +70,7 @@ export function useShowdownPlayback(m: MatchState | null, active: boolean): Play
   useEffect(() => {
     if (!step || step.t === 'battle') return;
     if (step.t === 'end') {
-      const id = setTimeout(() => controller.ackShowdown(), 1100);
+      const id = setTimeout(() => controller.ackShowdown(), 2000);
       return () => clearTimeout(id);
     }
     const id = setTimeout(() => setI((x) => x + 1), step.t === 'tie' ? 1150 : 1900);
@@ -130,7 +132,14 @@ export function useShowdownPlayback(m: MatchState | null, active: boolean): Play
       Skip
     </button>
   );
-  return { totals, marks, pop, layer, skip };
+  const r = m.result;
+  const verdict =
+    step.t === 'end' && r ? (
+      <span className={`ticker verdict ${m.solo ? '' : r.winner === 'you' ? 'win' : r.winner === 'bot' ? 'lose' : ''}`}>
+        <b>{m.solo ? `Set value $${r.youScore}` : r.winner === 'you' ? 'You take it!' : r.winner === 'bot' ? `${m.bot.name} takes it` : 'Dead heat'}</b>
+      </span>
+    ) : null;
+  return { totals, marks, pop, layer, skip, verdict };
 }
 
 /** The home places lift out, clash, and the winner goes home. */
@@ -239,18 +248,36 @@ function HomeBattle({ m, you, bot, winner, onLift, onDecide, onDone }: { m: Matc
   );
 }
 
-/** A glowing line from a tied card to its home place. */
+/** Where the segment from r's centre toward (tx, ty) leaves r (plus a small gap). */
+function edgeToward(r: DOMRect, tx: number, ty: number, gap = 5) {
+  const cx = r.left + r.width / 2;
+  const cy = r.top + r.height / 2;
+  const dx = tx - cx;
+  const dy = ty - cy;
+  const k = Math.min(dx ? (r.width / 2 + gap) / Math.abs(dx) : Infinity, dy ? (r.height / 2 + gap) / Math.abs(dy) : Infinity);
+  return { x: cx + dx * k, y: cy + dy * k };
+}
+
+/**
+ * A glowing line from a tied card to its home place. It runs edge to edge, never across either card,
+ * so the tie's label on the card stays readable.
+ */
 function TieLink({ from, to }: { from: string; to: string }) {
   const [pts, setPts] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
   useLayoutEffect(() => {
     const a = rectOf(from);
     const b = rectOf(to);
-    if (a && b) setPts({ x1: a.left + a.width / 2, y1: a.top + a.height / 2, x2: b.left + b.width / 2, y2: b.top + b.height / 2 });
+    if (!a || !b) return;
+    const p = edgeToward(a, b.left + b.width / 2, b.top + b.height / 2);
+    const q = edgeToward(b, a.left + a.width / 2, a.top + a.height / 2);
+    if (Math.hypot(q.x - p.x, q.y - p.y) < 8) return; // neighbouring cards: the glow on both says enough
+    setPts({ x1: p.x, y1: p.y, x2: q.x, y2: q.y });
   }, [from, to]);
   if (!pts) return null;
   return (
     <svg className="tielink" width="100%" height="100%">
       <line x1={pts.x1} y1={pts.y1} x2={pts.x2} y2={pts.y2} />
+      <circle cx={pts.x1} cy={pts.y1} r="4" />
       <circle cx={pts.x2} cy={pts.y2} r="6" />
     </svg>
   );

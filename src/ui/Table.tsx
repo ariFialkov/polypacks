@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { CARD_BY_ID, CATEGORY_META, MAIN_CATEGORIES, TIER_META } from '../data/cards';
 import { ABILITIES } from '../data/abilities';
 import { COMBO_BY_ID, comboHints } from '../data/combos';
 import { MINIGAME_BY_ID } from '../data/minigames';
 import { BOT_AVATARS } from '../data/art';
-import { PACK_INFO, PACK_PRICES, activeCombos, deckOf, matchShowdown, matchTotals, sideScore, unopened, type MPack, type MatchState, type MinigameOutcome, type Prompt, type SideState } from '../engine/match';
+import { PACK_INFO, PACK_PRICES, activeCombos, deckOf, matchShowdown, matchTotals, sideScore, unopened, type MPack, type MatchState, type MgEffect, type MinigameOutcome, type Prompt, type SideState } from '../engine/match';
 import type { DeckSlot } from '../engine/deck';
 import { MODE_INFO, seriesPrize } from '../engine/game';
 import { hashString } from '../engine/rng';
@@ -66,7 +66,9 @@ export function Table({ s }: { s: Snapshot }) {
         onCancel={() => controller.setTool(s.tool)}
       />
     ) : null;
-  const scoreOf = (w: Side) => (pb ? pb.totals[w] : m.phase === 'done' && !s.showdown ? matchTotals(m)[w] : sideScore(w === 'you' ? m.you : m.bot));
+  // final totals (and the winner) stay hidden until the showdown has played out and the round is settled
+  const settled = game.phase !== 'match';
+  const scoreOf = (w: Side) => (pb ? pb.totals[w] : m.phase === 'done' && settled ? matchTotals(m)[w] : sideScore(w === 'you' ? m.you : m.bot));
 
   // card size follows what is on the table: slot rows (portrait) and cards per line (landscape)
   const hasSpecial = (d: ReturnType<typeof deckOf> | null) => !!d && d.slots.some((x) => SPECIAL_IDS.includes(x.slot.id));
@@ -127,7 +129,9 @@ export function Table({ s }: { s: Snapshot }) {
           {!s.dealing && !lastToast && m.phase === 'draft' && laneHead}
           {!s.dealing && !lastToast && m.phase === 'draft' && !laneHead && <TurnBar s={s} m={m} yourTurn={yourTurn} prompt={prompt} youLeft={youLeft} />}
           {pb?.skip}
-          {!pb && !lastToast && m.phase !== 'draft' && m.result && (
+          {pb?.verdict}
+          {!pb && !lastToast && m.phase !== 'draft' && !settled && <span className="ticker">Final tally…</span>}
+          {!pb && !lastToast && m.phase !== 'draft' && settled && m.result && (
             <span className="ticker">
               <b>{solo ? `Set value $${m.result.youScore}` : m.result.winner === 'you' ? 'You take it.' : m.result.winner === 'bot' ? `${game.bot.name} takes it.` : 'Dead heat.'}</b>
             </span>
@@ -249,12 +253,44 @@ function useDelta(value: number): { n: number; k: number } | null {
   return d;
 }
 
+/** Counts quickly up or down to `value`, like a digital counter, instead of jumping to it. */
+function useRolling(value: number): { shown: number; dir: 'up' | 'down' | null } {
+  const [shown, setShown] = useState(value);
+  const [dir, setDir] = useState<'up' | 'down' | null>(null);
+  const cur = useRef(value);
+  useEffect(() => {
+    const from = cur.current;
+    if (from === value) return;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      cur.current = value;
+      setShown(value);
+      return;
+    }
+    const dur = Math.min(1100, 380 + Math.abs(value - from) * 10);
+    const t0 = performance.now();
+    let raf = 0;
+    setDir(value > from ? 'up' : 'down');
+    const tick = (now: number) => {
+      const p = Math.min(1, (now - t0) / dur);
+      const v = Math.round(from + (value - from) * (1 - Math.pow(1 - p, 3)));
+      cur.current = v;
+      setShown(v);
+      if (p < 1) raf = requestAnimationFrame(tick);
+      else setDir(null);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [value]);
+  return { shown, dir };
+}
+
 function ScoreBadge({ value, turn, label }: { value: number; turn: boolean; label?: string }) {
   const d = useDelta(value);
+  const roll = useRolling(value);
   return (
     <div className={`scorebadge ${turn ? 'turn' : ''}`}>
       {label && <span className="lbl">{label}</span>}
-      <span className="money">${value}</span>
+      <span className={`money rolling ${roll.dir ?? ''}`}>${roll.shown}</span>
       {d && (
         <span key={d.k} className={`scoredelta inline ${d.n > 0 ? 'up' : 'down'}`}>
           {d.n > 0 ? '+' : '−'}
@@ -820,49 +856,162 @@ function AbilityBanner({ show, m }: { show: AbilityShow; m: MatchState }) {
 }
 
 // ───────────── minigame ─────────────
+const MG_STAMP: Record<MgEffect['kind'], string> = { lost: 'Destroyed', stolen: 'Stolen', saved: 'Protected', safe: 'Survives' };
+const MG_STEP = 420; // ms between card results
+
 function MinigameOverlay({ mg, m }: { mg: MinigameOutcome; m: MatchState }) {
   const [stage, setStage] = useState<'intro' | 'roll' | 'done'>('intro');
+  const effects = mg.effects ?? [];
+  const hasRoll = mg.threshold > 0;
+  const [ready, setReady] = useState(false);
   useEffect(() => {
     setStage('intro');
-    const t1 = setTimeout(() => setStage('roll'), 900);
-    const t2 = setTimeout(() => setStage('done'), 2600);
-    return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
-    };
+    setReady(false);
+    const rollAt = 1100;
+    const doneAt = hasRoll ? 2900 : 2300;
+    const t = [setTimeout(() => setStage('roll'), rollAt), setTimeout(() => setStage('done'), doneAt), setTimeout(() => setReady(true), doneAt + 500 + effects.length * MG_STEP)];
+    return () => t.forEach(clearTimeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mg.n, mg.id]);
   const def = MINIGAME_BY_ID[mg.id];
   const sideName = (sd: Side) => (sd === 'you' ? 'You' : m.bot.name);
-  const left = mg.left.cardId ? CARD_BY_ID[mg.left.cardId] : null;
-  const right = mg.right.cardId ? CARD_BY_ID[mg.right.cardId] : null;
-  const hasRoll = mg.threshold > 0;
+  const setName = (sd: Side) => (sd === 'you' ? 'your set' : `${m.bot.name}'s set`);
+  const done = stage === 'done';
+  const effectOf = (uid?: string) => (uid ? effects.findIndex((e) => e.uid === uid) : -1);
+  const pct = (x: number) => `${Math.round(x * 100)}%`;
+  const outcomeLabels: Record<string, [string, string]> = {
+    'fish-on': ['Landed', 'Got away'],
+    'crime-pays': ['Heist works', 'Busted'],
+  };
+  const [lw, rw] = outcomeLabels[mg.id] ?? [`${mg.left.label} wins`, `${mg.right.label} wins`];
+
+  /** a card at stake: plays its result (destroyed, stolen, ...) once the roll is in */
+  const staked = (cardId: string, owner: Side, idx: number, extra?: ReactNode) => {
+    const e = idx >= 0 ? effects[idx] : null;
+    const show = done && !!e;
+    const thief = e?.kind === 'stolen' ? (e.side === 'you' ? 'bot' : 'you') : null;
+    const note = !e ? null : e.kind === 'lost' ? `Removed from ${setName(owner)}` : e.kind === 'stolen' ? `Moves to ${setName(thief!)}` : e.kind === 'saved' ? 'Protected: nothing lost' : null;
+    return (
+      <div className={`mgcard ${show ? `fx-${e!.kind}` : ''} ${thief ? `to-${thief}` : ''}`} style={{ ['--d' as string]: `${Math.max(0, idx) * MG_STEP}ms` }}>
+        <div className="mgcard-art">
+          <Card def={CARD_BY_ID[cardId]} />
+          {show && <span className={`mgstamp ${e!.kind}`}>{MG_STAMP[e!.kind]}</span>}
+        </div>
+        {e?.odds !== undefined && <span className="mgodds">{pct(e.odds)} to survive</span>}
+        {extra}
+        {mg.id !== 'act-of-god' && <span className={`mgnote ${show ? 'on' : ''} ${e?.kind ?? ''}`}>{note ?? '\u00a0'}</span>}
+      </div>
+    );
+  };
+
+  const contender = (c: MinigameOutcome['left'], other: MinigameOutcome['left']) => {
+    const won = done && mg.winner === c.side && c.side !== other.side;
+    const lost = done && mg.winner !== 'none' && mg.winner !== c.side;
+    const who = <span className="who">{sideName(c.side)}</span>;
+    return (
+      <div className={`contender ${won ? 'won' : ''} ${lost ? 'lost' : ''}`}>
+        {c.cardId ? (
+          staked(c.cardId, c.side, effectOf(c.uid), who)
+        ) : c.crew ? (
+          <>
+            <div className="mgcrew">
+              {c.crew.map((id) => (
+                <Card key={id} def={CARD_BY_ID[id]} className="tiny" />
+              ))}
+            </div>
+            <span className="who">{c.label}</span>
+          </>
+        ) : (
+          <>
+            <div className="sideblob">{c.label}</div>
+            <span className="who">{'\u00a0'}</span>
+          </>
+        )}
+      </div>
+    );
+  };
+
+  // effects whose card is not already on show as a contender (a heist's loot, a seized crime card)
+  const contenderUids = [mg.left.uid, mg.right.uid].filter(Boolean);
+  const loose = mg.id === 'act-of-god' ? [] : effects.map((e, i) => ({ e, i })).filter(({ e }) => !contenderUids.includes(e.uid));
+  const delta = mg.delta;
+  const deltaLine =
+    delta &&
+    (['you', 'bot'] as Side[])
+      .filter((w) => delta[w] !== 0)
+      .map((w) => (
+        <span key={w} className={delta[w] > 0 ? 'up' : 'down'}>
+          {w === 'you' ? 'Your set' : `${m.bot.name}'s set`} {delta[w] > 0 ? '+' : '−'}${Math.abs(delta[w])}
+        </span>
+      ));
+
   return (
-    <div className={`overlay minigame ${stage}`}>
+    <div className={`overlay minigame ${stage} mg-${mg.id}`}>
       <div className="inner">
         <span className="eyebrow">Minigame</span>
         <h2 className="mgtitle">{def?.name ?? mg.title}</h2>
-        <p className="sub">{def?.tagline}</p>
-        <div className="faceoff">
-          <div className={`contender ${stage === 'done' && mg.winner === mg.left.side ? 'won' : stage === 'done' ? 'lost' : ''}`}>
-            {left ? <Card def={left} /> : <div className="sideblob">{mg.left.label}</div>}
-            <span className="who">{sideName(mg.left.side)}</span>
+        {def && (
+          <p className="mgstakes">
+            <b>At stake:</b> {def.stakes}
+          </p>
+        )}
+        {mg.id === 'act-of-god' ? (
+          <div className="mgquake">
+            {mg.source && (
+              <div className="mgsource">
+                <Card def={CARD_BY_ID[mg.source.cardId]} className="tiny" />
+                <span className="who">
+                  {CARD_BY_ID[mg.source.cardId]?.name} hits
+                  <br />
+                  <small>played by {sideName(mg.source.side)}</small>
+                </span>
+              </div>
+            )}
+            {(['you', 'bot'] as Side[]).map((w) => {
+              const mine = effects.map((e, i) => ({ e, i })).filter(({ e }) => e.side === w);
+              return (
+                <div key={w} className="mgplaces">
+                  <span className="eyebrow">{w === 'you' ? 'Your places' : `${m.bot.name}'s places`}</span>
+                  <div className="mgrow">{mine.map(({ e, i }) => <div key={e.uid}>{staked(e.cardId, w, i)}</div>)}</div>
+                </div>
+              );
+            })}
           </div>
-          <div className="vs">VS</div>
-          <div className={`contender ${stage === 'done' && mg.winner === mg.right.side ? 'won' : stage === 'done' ? 'lost' : ''}`}>
-            {right ? <Card def={right} /> : <div className="sideblob">{mg.right.label}</div>}
-            <span className="who">{sideName(mg.right.side)}</span>
-          </div>
-        </div>
-        {hasRoll && (
-          <div className="rollbar">
-            <div className="zone" style={{ width: `${mg.threshold * 100}%` }} />
-            <div className={`needle ${stage !== 'intro' ? 'go' : ''}`} style={{ ['--to' as string]: `${mg.roll * 100}%` }} />
-            <span className="lbl l">{mg.left.label}</span>
-            <span className="lbl r">{mg.right.label}</span>
+        ) : (
+          <div className="faceoff">
+            {contender(mg.left, mg.right)}
+            <div className="vs">VS</div>
+            {contender(mg.right, mg.left)}
           </div>
         )}
-        <div className={`mgresult ${stage === 'done' ? 'show' : ''}`}>{mg.text}</div>
-        <button className="btn primary glow" disabled={stage !== 'done'} onClick={() => controller.ackMinigame()}>Continue</button>
+        {hasRoll && (
+          <div className="rollwrap">
+            <div className="rollbar">
+              <div className="zone" style={{ width: `${mg.threshold * 100}%` }} />
+              <div className={`needle ${stage !== 'intro' ? 'go' : ''}`} style={{ ['--to' as string]: `${mg.roll * 100}%` }} />
+            </div>
+            <div className="rolllbls">
+              <span className={done && mg.roll < mg.threshold ? 'hit' : ''}>◀ {lw} {pct(mg.threshold)}</span>
+              <span className={done && mg.roll >= mg.threshold ? 'hit' : ''}>{rw} {pct(1 - mg.threshold)} ▶</span>
+            </div>
+          </div>
+        )}
+        {loose.length > 0 && (
+          <div className="mgloose">
+            {loose.map(({ e, i }) => (
+              <div key={e.uid} className="mgtransfer">
+                {e.kind === 'stolen' && <span className="from">{sideName(e.side)}</span>}
+                {staked(e.cardId, e.side, i)}
+                {e.kind === 'stolen' && <span className="to">{sideName(e.side === 'you' ? 'bot' : 'you')}</span>}
+              </div>
+            ))}
+          </div>
+        )}
+        <div className={`mgresult ${done ? 'show' : ''}`}>{mg.text}</div>
+        <div className={`mgdelta ${ready ? 'show' : ''}`}>{deltaLine && deltaLine.length ? deltaLine : <span>No change to either set</span>}</div>
+        <button className="btn primary glow" disabled={!ready} onClick={() => controller.ackMinigame()}>
+          Continue
+        </button>
       </div>
     </div>
   );

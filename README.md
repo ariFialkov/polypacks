@@ -55,6 +55,9 @@ always grab the card that completes a combo.
 - **Home combos.** 32 combos that only count when their place is your home (Las Vegas plus an open mic
   night or a flash mob, the Oval Office plus a military coup, and so on).
 
+The set totals count up like a digital counter as points land, and the winner is only shown once the
+whole showdown has played out.
+
 During the draft the running totals are slot ratings plus combos. The pack opener marks cards that fit
 your current home, and cards that would complete a combo or a home combo.
 
@@ -80,7 +83,9 @@ asks of you opens with a blinking header saying which ability, from whose card, 
 
 **Minigames** trigger when both boards line up (Animal Kingdom when both sides own animals, Act of
 God when a disaster meets a place, Fish On for a trawler and a tuna, Crime Pays, Bar Fight). They are
-resolved by a seeded roll with a short VFX overlay; the loser's card is removed. The roll is part of the
+resolved by a seeded roll. The overlay states what is at stake in game terms, shows the odds on the roll
+bar, then plays each card's result on the card itself (destroyed cards crack and crumble, stolen cards
+are stamped and named for their new set) and ends with each set's value change. The roll is part of the
 sealed match, so the opponent's steering already knows how it ends.
 
 ## Card index

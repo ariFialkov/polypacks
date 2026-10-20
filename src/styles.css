@@ -2328,10 +2328,10 @@ p {
 .contender.won .card {
   filter: drop-shadow(0 0 24px var(--good));
 }
-.contender.lost {
-  opacity: 0.35;
+.contender.lost .sideblob,
+.contender.lost .mgcrew {
+  opacity: 0.4;
   filter: grayscale(1);
-  transform: scale(0.92) rotate(-6deg);
 }
 .sideblob {
   width: var(--cw);
@@ -2386,19 +2386,326 @@ p {
 .rollbar .needle.go {
   left: var(--to);
 }
-.rollbar .lbl {
-  position: absolute;
-  top: 24px;
+.rollwrap {
+  width: min(90vw, 460px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rollwrap .rollbar {
+  width: 100%;
+  margin: 8px 0 0;
+}
+.rolllbls {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
   font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.rolllbls span {
+  transition: color 0.3s, text-shadow 0.3s;
+}
+.rolllbls span:last-child {
+  text-align: right;
+}
+.rolllbls .hit {
+  color: #fff;
+  text-shadow: 0 0 10px var(--gold);
+}
+
+/* minigame: every card at stake shows what happened to it */
+.overlay.minigame {
+  --cw: clamp(62px, min(19vw, 15vh), 118px);
+}
+.overlay.minigame .inner {
+  gap: 12px;
+}
+.overlay.minigame .mgtitle {
+  font-size: clamp(30px, 7vw, 60px);
+}
+.mgstakes {
+  max-width: 520px;
+  padding: 8px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--line);
+  font-size: 14px;
+  color: #e8e6ff;
+}
+.mgstakes b {
+  color: var(--gold);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 12px;
+}
+.mgcard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.mgcard-art {
+  position: relative;
+}
+.mgcard-art > .card {
+  transition: filter 0.4s;
+}
+.mgodds {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+}
+.mgnote {
+  min-height: 1.3em;
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0;
+  transition: opacity 0.3s;
+  transition-delay: calc(var(--d, 0ms) + 0.7s);
+}
+.mgnote.on {
+  opacity: 1;
+}
+.mgnote.lost {
+  color: var(--bad);
+}
+.mgnote.stolen {
+  color: var(--gold);
+}
+.mgnote.saved,
+.mgnote.safe {
+  color: var(--good);
+}
+.mgstamp {
+  position: absolute;
+  left: 50%;
+  top: 38%;
+  z-index: 3;
+  padding: 3px 8px;
+  border: 3px solid currentColor;
+  border-radius: 6px;
+  background: rgba(8, 6, 20, 0.82);
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: clamp(11px, calc(var(--cw) * 0.15), 18px);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translate(-50%, -50%) rotate(-12deg);
+  animation: mgStamp 0.35s cubic-bezier(0.3, 1.6, 0.5, 1) both;
+  animation-delay: calc(var(--d, 0ms) + 0.45s);
+}
+.mgstamp.lost {
+  color: var(--bad);
+}
+.mgstamp.stolen {
+  color: var(--gold);
+}
+.mgstamp.saved {
+  color: #7fd8ff;
+}
+.mgstamp.safe {
+  color: var(--good);
+}
+@keyframes mgStamp {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(-12deg) scale(2.2);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) rotate(-12deg) scale(1);
+  }
+}
+/* destroyed: the card shakes, cracks, flashes red and crumbles */
+.mgcard.fx-lost .mgcard-art > .card {
+  animation: mgShake 0.45s linear both, mgCrumble 0.8s ease-in forwards;
+  animation-delay: var(--d, 0ms), calc(var(--d, 0ms) + 0.45s);
+}
+.mgcard.fx-lost .mgcard-art::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background:
+    linear-gradient(118deg, transparent 47%, rgba(255, 79, 109, 0.95) 48%, transparent 50%),
+    linear-gradient(64deg, transparent 58%, rgba(255, 79, 109, 0.85) 59%, transparent 60.5%),
+    linear-gradient(160deg, transparent 30%, rgba(255, 79, 109, 0.8) 31%, transparent 32.2%);
+  animation: mgCrack 0.6s ease-out both;
+  animation-delay: calc(var(--d, 0ms) + 0.3s);
+}
+@keyframes mgShake {
+  0%,
+  100% {
+    transform: none;
+  }
+  20% {
+    transform: translateX(-5px) rotate(-3deg);
+  }
+  40% {
+    transform: translateX(5px) rotate(3deg);
+  }
+  60% {
+    transform: translateX(-4px) rotate(-2deg);
+  }
+  80% {
+    transform: translateX(3px) rotate(1deg);
+  }
+}
+@keyframes mgCrumble {
+  0% {
+    filter: brightness(1.6) sepia(1) hue-rotate(-50deg) saturate(4);
+  }
+  100% {
+    filter: grayscale(1) brightness(0.45);
+    transform: translateY(8px) rotate(-7deg) scale(0.86);
+    opacity: 0.5;
+  }
+}
+@keyframes mgCrack {
+  from {
+    opacity: 0;
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+  }
+}
+/* stolen: the card lifts out in gold */
+.mgcard.fx-stolen .mgcard-art > .card {
+  animation: mgSteal 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: var(--d, 0ms);
+}
+@keyframes mgSteal {
+  0% {
+    transform: none;
+  }
+  40% {
+    transform: translateY(-14px) scale(1.08) rotate(4deg);
+    filter: drop-shadow(0 0 22px var(--gold));
+  }
+  100% {
+    transform: translateY(-4px) scale(1.02);
+    filter: drop-shadow(0 0 14px var(--gold));
+  }
+}
+.mgcard.fx-saved .mgcard-art > .card {
+  filter: drop-shadow(0 0 16px #7fd8ff);
+}
+.mgcard.fx-safe .mgcard-art > .card {
+  filter: drop-shadow(0 0 12px var(--good));
+}
+.mgcrew {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: calc(var(--cw) * 1.7);
+}
+.mgquake {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+.mgsource {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.mgsource .who {
+  font-family: var(--display);
+  font-size: 13px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--muted);
 }
-.rollbar .lbl.l {
-  left: 0;
+.overlay.minigame.roll .mgsource .card {
+  animation: mgShake 0.5s linear infinite;
 }
-.rollbar .lbl.r {
-  right: 0;
+.overlay.minigame.roll .mgplaces .card {
+  animation: mgShake 0.35s linear infinite;
+}
+.mgplaces {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.mgrow {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+}
+.mgplaces .card {
+  --w: calc(var(--cw) * 0.72);
+}
+.mgplaces .mgnote {
+  max-width: calc(var(--cw) * 1.1);
+}
+.mgsource .who small {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+.mgsource .who {
+  text-align: left;
+  color: #fff;
+}
+.mgloose {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 16px;
+}
+.mgtransfer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.mgtransfer .from,
+.mgtransfer .to {
+  font-family: var(--display);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.mgtransfer .from::after {
+  content: ' →';
+}
+.mgtransfer .to::before {
+  content: '→ ';
+}
+.mgdelta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 16px;
+  min-height: 1.4em;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 16px;
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+.mgdelta.show {
+  opacity: 1;
+}
+.mgdelta .up {
+  color: var(--good);
+}
+.mgdelta .down {
+  color: var(--bad);
 }
 .mgresult {
   min-height: 28px;
@@ -3002,13 +3309,16 @@ p {
   inset: 0;
   z-index: 42;
   pointer-events: none;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   overflow: hidden;
 }
+/* the band runs 10% past both edges (so the skew never shows a corner) and stays centred */
 .abilitybanner .band {
-  width: 120vw;
-  padding: 18px 12vw;
+  margin: 0 -10%;
+  padding: 18px 14%;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -3526,4 +3836,78 @@ p {
   border: 0;
   padding: 0;
   cursor: pointer;
+}
+
+/* the winner, flashed in the centre lane once the showdown has fully played out */
+.ticker.verdict {
+  position: relative;
+  z-index: 45;
+  padding: 10px 22px;
+  font-size: 18px;
+  border-color: var(--gold);
+  box-shadow: 0 0 24px rgba(255, 209, 102, 0.45);
+  animation: verdictIn 0.5s cubic-bezier(0.2, 1.4, 0.4, 1) both, verdictFlash 0.6s ease-in-out 0.5s 3;
+}
+.ticker.verdict b {
+  font-size: 18px;
+}
+.ticker.verdict.win {
+  border-color: var(--good);
+  box-shadow: 0 0 24px rgba(61, 255, 176, 0.45);
+}
+.ticker.verdict.lose {
+  border-color: var(--bad);
+  box-shadow: 0 0 24px rgba(255, 79, 109, 0.45);
+}
+@keyframes verdictIn {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes verdictFlash {
+  50% {
+    filter: brightness(1.6);
+  }
+}
+
+/* set value counter: digits roll to the new total */
+.scorebadge .money.rolling {
+  font-variant-numeric: tabular-nums;
+  transition: color 0.25s, text-shadow 0.25s;
+}
+.scorebadge .money.rolling.up {
+  color: var(--good);
+  text-shadow: 0 0 12px rgba(61, 255, 176, 0.6);
+}
+.scorebadge .money.rolling.down {
+  color: var(--bad);
+  text-shadow: 0 0 12px rgba(255, 79, 109, 0.6);
+}
+.mgplaces .mgstamp {
+  font-size: clamp(9px, calc(var(--cw) * 0.13), 15px);
+  padding: 2px 5px;
+  border-width: 2px;
+  letter-spacing: 0.04em;
+}
+@media (max-width: 480px) {
+  .mgrow {
+    gap: 18px;
+  }
+}
+@media (max-height: 700px) {
+  .overlay.minigame .inner {
+    gap: 8px;
+  }
+  .overlay.minigame .mgtitle {
+    font-size: clamp(26px, 6vw, 44px);
+  }
+  .mgstakes {
+    font-size: 13px;
+    padding: 6px 12px;
+  }
 }

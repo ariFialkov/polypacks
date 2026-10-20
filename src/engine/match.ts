@@ -106,13 +106,30 @@ export interface MatchEvent {
 export interface MinigameOutcome {
   id: string;
   title: string;
-  left: { side: Side; uid?: string; label: string; cardId?: string };
+  left: { side: Side; uid?: string; label: string; cardId?: string; crew?: string[] };
   right: { side: Side; uid?: string; label: string; cardId?: string };
   roll: number; // 0..1
   threshold: number; // left wins if roll < threshold
   winner: Side | 'none';
   text: string;
   n: number;
+  /** what happened to each card at stake, in game terms (for the overlay) */
+  effects: MgEffect[];
+  /** the card that set it off (an Act of God's disaster) */
+  source?: { side: Side; cardId: string };
+  /** set value change per side */
+  delta: Record<Side, number>;
+}
+
+export interface MgEffect {
+  /** lost: destroyed · stolen: changes hands · saved: protected from loss · safe: survived its roll */
+  kind: 'lost' | 'stolen' | 'saved' | 'safe';
+  /** owner before the minigame */
+  side: Side;
+  cardId: string;
+  uid: string;
+  /** chance this card had of coming through (Act of God) */
+  odds?: number;
 }
 
 export interface MatchResult {
@@ -1122,6 +1139,13 @@ function roll(s: MatchState, key: string): number {
   return r.next();
 }
 
+function scoresNow(s: MatchState): Record<Side, number> {
+  return { you: sideScore(s.you), bot: sideScore(s.bot) };
+}
+function deltaSince(s: MatchState, before: Record<Side, number>): Record<Side, number> {
+  return { you: sideScore(s.you) - before.you, bot: sideScore(s.bot) - before.bot };
+}
+
 function checkMinigames(s: MatchState) {
   if (s.solo || s.phase !== 'draft') return;
   const fired = (id: string) => s.firedMinigames.includes(id);
@@ -1152,16 +1176,22 @@ function checkMinigames(s: MatchState) {
     const bp = s.bot.cards.filter((c) => c.def.cat === 'places');
     if (!yp.length || !bp.length) continue;
     s.firedMinigames.push(key);
+    const before = scoresNow(s);
     const wiped: string[] = [];
+    const effects: MgEffect[] = [];
     let i = 0;
     for (const who of ['you', 'bot'] as Side[]) {
       const ss = side(s, who);
       for (const c of ss.cards.filter((x) => x.def.cat === 'places')) {
         const survive = Math.min(0.95, c.def.rating / 110 + (who === owner ? 0.15 : 0));
         const rr = roll(s, `${key}:${i++}`);
-        if (rr >= survive && !isProtected(ss, c.uid)) {
+        const base = { side: who, cardId: c.def.id, uid: c.uid, odds: survive };
+        if (rr < survive) effects.push({ kind: 'safe', ...base });
+        else if (isProtected(ss, c.uid)) effects.push({ kind: 'saved', ...base });
+        else {
           wiped.push(`${poss(ss)} ${c.def.name}`);
           destroy(s, who, c.uid, 'wiped off the map');
+          effects.push({ kind: 'lost', ...base });
         }
       }
     }
@@ -1173,8 +1203,11 @@ function checkMinigames(s: MatchState) {
       roll: 0,
       threshold: 0,
       winner: 'none',
-      text: wiped.length ? `${CARD_BY_ID[d].name} hits. Gone: ${wiped.join(', ')}.` : `${CARD_BY_ID[d].name} hits. Every place holds.`,
+      text: wiped.length ? `${CARD_BY_ID[d].name} hits. Destroyed: ${wiped.join(', ')}.` : `${CARD_BY_ID[d].name} hits. Every place holds.`,
       n: s.events.length,
+      effects,
+      source: { side: owner, cardId: d },
+      delta: deltaSince(s, before),
     });
     log(s, owner, 'minigame', `Act of God: ${CARD_BY_ID[d].name}. ${wiped.length ? wiped.join(', ') + ' wiped.' : 'Everything holds.'}`);
   }
@@ -1188,18 +1221,26 @@ function checkMinigames(s: MatchState) {
       const us = side(s, uSide);
       const trawler = ts.cards.find((c) => c.def.id === 'fishing-trawler')!;
       const tuna = us.cards.find((c) => c.def.id === 'bluefin-tuna')!;
+      const before = scoresNow(s);
       const rr = roll(s, 'fish-on');
       const landed = rr < 0.55;
       let text: string;
+      const effects: MgEffect[] = [];
       if (landed && !isProtected(us, tuna.uid) && us.bouncer === 0) {
         steal(s, tSide, tuna.uid);
-        text = `${ts.name} lands the tuna!`;
-      } else if (landed) text = `${ts.name} hooks it, but it will not come aboard.`;
-      else {
-        destroy(s, tSide, trawler.uid, 'lost with all hands');
-        text = `The trawler goes down with all hands.`;
+        text = `${ts.name} ${tSide === 'you' ? 'land' : 'lands'} the tuna! It moves to ${tSide === 'you' ? 'your' : `${ts.name}'s`} set.`;
+        effects.push({ kind: 'stolen', side: uSide, cardId: tuna.def.id, uid: tuna.uid });
+      } else if (landed) {
+        text = `${ts.name} ${tSide === 'you' ? 'hook' : 'hooks'} it, but it will not come aboard. Nothing changes hands.`;
+        effects.push({ kind: 'saved', side: uSide, cardId: tuna.def.id, uid: tuna.uid });
+      } else if (destroy(s, tSide, trawler.uid, 'lost with all hands')) {
+        text = `The trawler goes down with all hands. ${poss(ts)} Fishing Trawler is destroyed.`;
+        effects.push({ kind: 'lost', side: tSide, cardId: trawler.def.id, uid: trawler.uid });
+      } else {
+        text = `The tuna gets away, but the trawler limps home.`;
+        effects.push({ kind: 'saved', side: tSide, cardId: trawler.def.id, uid: trawler.uid });
       }
-      s.minigames.push({ id: 'fish-on', title: 'Fish On!', left: { side: tSide, uid: trawler.uid, label: 'Fishing Trawler', cardId: 'fishing-trawler' }, right: { side: uSide, uid: tuna.uid, label: 'Bluefin Tuna', cardId: 'bluefin-tuna' }, roll: rr, threshold: 0.55, winner: landed ? tSide : uSide, text, n: s.events.length });
+      s.minigames.push({ id: 'fish-on', title: 'Fish On!', left: { side: tSide, uid: trawler.uid, label: 'Fishing Trawler', cardId: 'fishing-trawler' }, right: { side: uSide, uid: tuna.uid, label: 'Bluefin Tuna', cardId: 'bluefin-tuna' }, roll: rr, threshold: 0.55, winner: landed ? tSide : uSide, text, n: s.events.length, effects, delta: deltaSince(s, before) });
       log(s, tSide, 'minigame', `Fish On! ${text}`);
     }
   }
@@ -1212,9 +1253,11 @@ function checkMinigames(s: MatchState) {
     const crimes = ofGroup(ss, GROUPS.crimes);
     if (crimes.length < 2) continue;
     s.firedMinigames.push(key);
+    const before = scoresNow(s);
     let p = 0.5 + 0.1 * (crimes.length - 2) - (has(opp, 'surprise-drug-test') ? 0.2 : 0);
     const rr = roll(s, key);
     let text: string;
+    const effects: MgEffect[] = [];
     if (rr < p) {
       const targets = vulnerable(opp);
       if (targets.length && opp.bouncer === 0) {
@@ -1222,17 +1265,25 @@ function checkMinigames(s: MatchState) {
         const t = r2.pick(targets);
         saveRng(s, r2);
         steal(s, who, t.uid);
-        text = `The heist pays: ${ss.name} ${who === 'you' ? 'walk' : 'walks'} off with ${t.def.name}.`;
+        text = `The heist pays: ${ss.name} ${who === 'you' ? 'steal' : 'steals'} ${poss(opp).replace('Your', 'your')} ${t.def.name}.`;
+        effects.push({ kind: 'stolen', side: other(who), cardId: t.def.id, uid: t.uid });
       } else text = `The heist pays, but there was nothing to take.`;
-    } else if (has(ss, 'plausible-deniability')) text = `Busted. Plausible Deniability: no charges stick.`;
-    else {
+    } else if (has(ss, 'plausible-deniability')) {
+      text = `Busted. Plausible Deniability: no charges stick, nothing is lost.`;
+      for (const c of crimes) effects.push({ kind: 'saved', side: who, cardId: c.def.id, uid: c.uid });
+    } else {
       const r2 = rng(s);
       const lost = r2.pick(crimes);
       saveRng(s, r2);
-      destroy(s, who, lost.uid, 'seized');
-      text = `Busted. ${ss.name} ${who === 'you' ? 'lose' : 'loses'} ${lost.def.name}.`;
+      if (destroy(s, who, lost.uid, 'seized')) {
+        text = `Busted. ${poss(ss)} ${lost.def.name} is seized and destroyed.`;
+        effects.push({ kind: 'lost', side: who, cardId: lost.def.id, uid: lost.uid });
+      } else {
+        text = `Busted, but ${lost.def.name} is protected. Nothing is lost.`;
+        effects.push({ kind: 'saved', side: who, cardId: lost.def.id, uid: lost.uid });
+      }
     }
-    s.minigames.push({ id: 'crime-pays', title: 'Crime Pays', left: { side: who, label: `${poss(ss)} crew` }, right: { side: other(who), label: 'The law' }, roll: rr, threshold: p, winner: rr < p ? who : other(who), text, n: s.events.length });
+    s.minigames.push({ id: 'crime-pays', title: 'Crime Pays', left: { side: who, label: `${poss(ss)} crew`, crew: crimes.map((c) => c.def.id) }, right: { side: other(who), label: 'The law' }, roll: rr, threshold: p, winner: rr < p ? who : other(who), text, n: s.events.length, effects, delta: deltaSince(s, before) });
     log(s, who, 'minigame', `Crime Pays: ${text}`);
   }
   // Bar Fight
@@ -1243,13 +1294,15 @@ function checkMinigames(s: MatchState) {
       s.firedMinigames.push('bar-fight');
       const b = side(s, bSide).cards.find((c) => c.def.id === 'bouncer')!;
       const f = side(s, fSide).cards.find((c) => c.def.id === 'frat-guy')!;
+      const before = scoresNow(s);
       const p = b.def.rating / (b.def.rating + f.def.rating);
       const rr = roll(s, 'bar-fight');
       const bouncerWins = rr < p;
-      if (bouncerWins) destroy(s, fSide, f.uid, 'thrown out');
-      else destroy(s, bSide, b.uid, 'knocked out');
-      const text = bouncerWins ? 'The Bouncer wins. Frat Guy is thrown out.' : 'Frat Guy wins. The Bouncer is out cold.';
-      s.minigames.push({ id: 'bar-fight', title: 'Bar Fight', left: { side: bSide, uid: b.uid, label: 'Bouncer', cardId: 'bouncer' }, right: { side: fSide, uid: f.uid, label: 'Frat Guy', cardId: 'frat-guy' }, roll: rr, threshold: p, winner: bouncerWins ? bSide : fSide, text, n: s.events.length });
+      const loser = bouncerWins ? { side: fSide, c: f } : { side: bSide, c: b };
+      const gone = destroy(s, loser.side, loser.c.uid, bouncerWins ? 'thrown out' : 'knocked out');
+      const effects: MgEffect[] = [{ kind: gone ? 'lost' : 'saved', side: loser.side, cardId: loser.c.def.id, uid: loser.c.uid }];
+      const text = !gone ? `${loser.c.def.name} loses the fight but is protected. Nothing is lost.` : bouncerWins ? `The Bouncer wins. ${poss(side(s, fSide))} Frat Guy is thrown out (destroyed).` : `Frat Guy wins. ${poss(side(s, bSide))} Bouncer is out cold (destroyed).`;
+      s.minigames.push({ id: 'bar-fight', title: 'Bar Fight', left: { side: bSide, uid: b.uid, label: 'Bouncer', cardId: 'bouncer' }, right: { side: fSide, uid: f.uid, label: 'Frat Guy', cardId: 'frat-guy' }, roll: rr, threshold: p, winner: bouncerWins ? bSide : fSide, text, n: s.events.length, effects, delta: deltaSince(s, before) });
       log(s, bSide, 'minigame', `Bar Fight: ${text}`);
     }
   }
@@ -1268,13 +1321,15 @@ function resolvePendingMinigame(s: MatchState) {
   const bc = ba.slice().sort((a, b) => b.def.rating - a.def.rating)[0];
   s.firedMinigames.push('animal-kingdom');
   s.pendingMinigame = null;
+  const before = scoresNow(s);
   const p = yc.def.rating / (yc.def.rating + bc.def.rating);
   const rr = roll(s, 'animal-kingdom');
   const youWin = rr < p;
-  if (youWin) destroy(s, 'bot', bc.uid, 'eaten');
-  else destroy(s, 'you', yc.uid, 'eaten');
-  const text = youWin ? `${yc.def.name} takes down ${bc.def.name}.` : `${bc.def.name} takes down ${yc.def.name}.`;
-  s.minigames.push({ id: 'animal-kingdom', title: 'Animal Kingdom', left: { side: 'you', uid: yc.uid, label: yc.def.name, cardId: yc.def.id }, right: { side: 'bot', uid: bc.uid, label: bc.def.name, cardId: bc.def.id }, roll: rr, threshold: p, winner: youWin ? 'you' : 'bot', text, n: s.events.length });
+  const loser = youWin ? { side: 'bot' as Side, c: bc } : { side: 'you' as Side, c: yc };
+  const gone = destroy(s, loser.side, loser.c.uid, 'eaten');
+  const effects: MgEffect[] = [{ kind: gone ? 'lost' : 'saved', side: loser.side, cardId: loser.c.def.id, uid: loser.c.uid }];
+  const text = (youWin ? `${yc.def.name} takes down ${bc.def.name}.` : `${bc.def.name} takes down ${yc.def.name}.`) + (gone ? '' : ' It is protected, so nothing is lost.');
+  s.minigames.push({ id: 'animal-kingdom', title: 'Animal Kingdom', left: { side: 'you', uid: yc.uid, label: yc.def.name, cardId: yc.def.id }, right: { side: 'bot', uid: bc.uid, label: bc.def.name, cardId: bc.def.id }, roll: rr, threshold: p, winner: youWin ? 'you' : 'bot', text, n: s.events.length, effects, delta: deltaSince(s, before) });
   log(s, 'you', 'minigame', `Animal Kingdom: ${text}`);
 }
 
