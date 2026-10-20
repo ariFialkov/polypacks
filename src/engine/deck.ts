@@ -47,60 +47,55 @@ export function setPotential(cards: CardInst[]): number {
   return total;
 }
 
-function bestSubset(cards: CardInst[], slots: SlotDef[]): { assign: number[]; chosen: CardInst[] } {
-  // Greedy: highest ratings first into the most specific free slot, then one-swap improvement so
-  // a lower card that completes a combo can still make the cut.
-  const order = cards.map((_c, i) => i).sort((a, b) => cards[b].def.rating - cards[a].def.rating);
+/**
+ * Place cards in the order they were acquired, so the newest card always lands in a slot. When every
+ * slot that takes it is full, it replaces the weakest older card there (preferring one of its own
+ * category, so a new idea replaces the old idea), and the replaced card moves to any other free slot
+ * that takes it, or to the bench.
+ */
+function placeByRecency(cards: CardInst[], slots: SlotDef[]): { assign: number[]; chosen: CardInst[] } {
   const assign: number[] = new Array(slots.length).fill(-1);
   const slotOrder = slots.map((_sl, i) => i).sort((a, b) => slots[a].accepts.length - slots[b].accepts.length);
-  for (const ci of order) {
+  const freeSlotFor = (ci: number) => {
     const cat = cards[ci].def.cat as MainCategory;
-    const si = slotOrder.find((i) => assign[i] === -1 && slots[i].accepts.includes(cat));
-    if (si !== undefined) assign[si] = ci;
-  }
-  const scoreOf = (a: number[]) => setPotential(a.filter((x) => x >= 0).map((x) => cards[x]));
-  let best = scoreOf(assign);
-  let improved = true;
-  let guard = 0;
-  while (improved && guard++ < 6) {
-    improved = false;
-    const used = new Set(assign.filter((x) => x >= 0));
-    for (let ci = 0; ci < cards.length; ci++) {
-      if (used.has(ci)) continue;
-      const cat = cards[ci].def.cat as MainCategory;
-      for (let si = 0; si < slots.length; si++) {
-        if (!slots[si].accepts.includes(cat)) continue;
-        const prev = assign[si];
-        assign[si] = ci;
-        const sc = scoreOf(assign);
-        if (sc > best) {
-          best = sc;
-          improved = true;
-          used.delete(prev);
-          used.add(ci);
-          break;
-        }
-        assign[si] = prev;
-      }
-      if (improved) break;
+    return slotOrder.find((i) => assign[i] === -1 && slots[i].accepts.includes(cat));
+  };
+  for (let ci = 0; ci < cards.length; ci++) {
+    const cat = cards[ci].def.cat as MainCategory;
+    if (!MAIN.includes(cat)) continue;
+    const free = freeSlotFor(ci);
+    if (free !== undefined) {
+      assign[free] = ci;
+      continue;
     }
+    const taking = slotOrder.filter((i) => slots[i].accepts.includes(cat) && assign[i] >= 0);
+    if (!taking.length) continue;
+    const weakest = (pool: number[]) =>
+      pool.slice().sort((a, b) => cards[assign[a]].def.rating - cards[assign[b]].def.rating || assign[a] - assign[b])[0];
+    const sameCat = taking.filter((i) => cards[assign[i]].def.cat === cat);
+    const si = weakest(sameCat.length ? sameCat : taking);
+    const bumped = assign[si];
+    assign[si] = ci;
+    const relocate = freeSlotFor(bumped);
+    if (relocate !== undefined) assign[relocate] = bumped;
   }
   const chosen = assign.filter((x) => x >= 0).map((x) => cards[x]);
   const remap = assign.map((x) => (x >= 0 ? chosen.indexOf(cards[x]) : -1));
   return { assign: remap, chosen };
 }
+const MAIN: MainCategory[] = ['life', 'stuff', 'places', 'ideas', 'happenings'];
 
 export function slotsFor(unlocked: number): SlotDef[] {
   return [...BASE_SLOTS, ...SPECIAL_SLOTS.slice(0, Math.max(0, Math.min(3, unlocked)))];
 }
 
-/** Auto-build the best deck from the collected cards, unlocking special slots through combos. */
+/** Build the set from the collected cards (newest card always slotted), unlocking special slots through combos. */
 export function buildDeck(cards: CardInst[], opts: { unlocked?: number } = {}): Deck {
   let unlocked = opts.unlocked ?? 0;
   let result: Deck | null = null;
   for (let iter = 0; iter < 4; iter++) {
     const slots = slotsFor(unlocked);
-    const { assign, chosen } = bestSubset(cards, slots);
+    const { assign, chosen } = placeByRecency(cards, slots);
     const deckSlots: DeckSlot[] = slots.map((slot, si) => ({ slot, card: assign[si] >= 0 ? chosen[assign[si]] : null }));
     const combos = findCombos(chosen.map((c) => c.def.id));
     const comboUnlock = Math.min(3, combos.reduce((s, c) => s + (c.unlock ?? 0), 0));

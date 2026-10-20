@@ -33,6 +33,8 @@ export interface Snapshot {
   botBusy: boolean;
   specialFx: CardDef | null;
   minigameShow: MinigameOutcome | null;
+  /** the end-of-match showdown is playing (the result waits for it) */
+  showdown: boolean;
   freshUids: string[]; // cards that just arrived (animate)
   toasts: Toast[];
   tool: 'delorean' | 'peek' | null;
@@ -96,7 +98,7 @@ class Controller {
       botStatus: '',
       botBusy: false,
       specialFx: null,
-      minigameShow: null,
+      minigameShow: null, showdown: false,
       freshUids: [],
       toasts: [],
       tool: null,
@@ -198,7 +200,7 @@ class Controller {
 
   home() {
     this.clearTimers();
-    this.commit({ game: null, match: null, opening: null, botBusy: false, tool: null, dealing: false, specialFx: null, menuOpen: false, minigameShow: null, freshUids: [] });
+    this.commit({ game: null, match: null, opening: null, botBusy: false, tool: null, dealing: false, specialFx: null, menuOpen: false, minigameShow: null, showdown: false, freshUids: [] });
   }
 
   start(mode: Mode, stakeChoice?: number) {
@@ -225,7 +227,7 @@ class Controller {
     writeNum(WALLET_KEY, wallet);
     const game = newGame(mode, randomSeed(), stake);
     sfx.cash();
-    this.commit({ game, wallet, match: null, opening: null, botBusy: false, tool: null, menuOpen: false, specialFx: null, minigameShow: null, freshUids: [] });
+    this.commit({ game, wallet, match: null, opening: null, botBusy: false, tool: null, menuOpen: false, specialFx: null, minigameShow: null, showdown: false, freshUids: [] });
     if (mode !== 'solitaire') this.beginMatch();
   }
 
@@ -283,8 +285,9 @@ class Controller {
       return; // the bot waits for the ack
     }
     if (m.phase === 'done') {
-      this.later(() => this.settle(), 900);
-      this.touch();
+      // the showdown plays first; the result is settled when it is acknowledged
+      if (game.phase === 'match' && !this.snap.showdown) this.later(() => this.touch({ showdown: true }), 700);
+      else this.touch();
       return;
     }
     if (botShouldAct(m) && !this.snap.minigameShow && !this.snap.opening) this.scheduleBot();
@@ -309,6 +312,12 @@ class Controller {
       this.touch({ botBusy: false, botStatus: 'picked.', freshUids: fresh });
       this.afterEngine();
     }, ms);
+  }
+
+  ackShowdown() {
+    sfx.tap();
+    this.commit({ showdown: false });
+    this.settle();
   }
 
   ackMinigame() {

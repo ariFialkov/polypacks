@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { Rng } from './rng';
-import { CARDS } from '../data/cards';
-import { COMBOS } from '../data/combos';
+import { CARDS, CARD_BY_ID } from '../data/cards';
+import { PLACE_THEMES, THEMES, HOME_BONUS } from '../data/places';
+import { buildDeck } from './deck';
+import { showdown } from './finale';
+import { COMBOS, findCombos } from '../data/combos';
 import { CARD_ART } from '../data/art';
 import { marginRate, newGame, seriesPrize, startMatch, roundFate, settleRound, STAKE_OPTIONS } from './game';
 import { answer, botShouldAct, flipCat, openPack, pickCard, runBotTurn, unopened, useDelorean, usePeek, type MatchState } from './match';
@@ -105,6 +108,43 @@ describe('card data', () => {
   });
 });
 
+describe('places, combos and slots', () => {
+  it('gives every place themes and every idea a combo', () => {
+    for (const c of CARDS.filter((x) => x.cat === 'places')) expect(PLACE_THEMES[c.id]?.length, c.id).toBeGreaterThan(0);
+    for (const ids of Object.values(THEMES)) for (const id of ids) expect(CARD_BY_ID[id], id).toBeTruthy();
+    for (const c of CARDS.filter((x) => x.cat === 'ideas')) expect(COMBOS.some((k) => !k.home && k.parts.some((alts) => alts.includes(c.id))), c.id).toBe(true);
+    for (const k of COMBOS.filter((x) => x.home)) expect(k.parts[0]).toEqual([k.home]);
+    expect(findCombos(['las-vegas', 'open-mic-night']).some((k) => k.id === 'home-vegas')).toBe(false);
+  });
+  it('slots the newest card, replacing the old one of its kind', () => {
+    const inst = (id: string, n: number) => ({ uid: `u${n}`, def: CARD_BY_ID[id] });
+    const deck = buildDeck([inst('theory-of-relativity', 1), inst('algebra', 2)]);
+    expect(deck.slots.find((x) => x.slot.id === 'idea')!.card!.def.id).toBe('algebra');
+    expect(deck.bench.map((c) => c.def.id)).toEqual(['theory-of-relativity']);
+    const lives = buildDeck([inst('harambe', 1), inst('the-pope', 2), inst('snail', 3)]);
+    const slotted = lives.slots.filter((x) => x.card).map((x) => x.card!.def.id).sort();
+    expect(slotted).toEqual(['harambe', 'snail'].sort()); // the weaker older life (the pope) is bumped
+  });
+  it('scores the showdown: home turf to the stronger home, ties for cards that fit', () => {
+    const side = (ids: string[]) => ({ cards: ids.map((id, i) => ({ uid: `${id}-${i}`, def: CARD_BY_ID[id] })), cancelledCombos: [], flags: { godMode: false } });
+    const sd = showdown(side(['las-vegas', 'frat-guy', 'open-mic-night', 'tornado']), side(['dmv', 'snail']));
+    expect(sd.you.home!.def.id).toBe('las-vegas');
+    expect(sd.homeWinner).toBe('you');
+    expect(sd.you.homeBonus).toBe(HOME_BONUS);
+    expect(sd.you.ties.length).toBe(2); // frat guy and open mic night fit the party
+    expect(sd.you.homeCombos.map((k) => k.id)).toContain('home-vegas');
+  });
+  it('plants real combo chances in the player\'s packs', () => {
+    let withChance = 0;
+    for (let seed = 1; seed <= 60; seed++) {
+      const m = startMatch(newGame('series', seed * 31 + 7));
+      const ids = new Set(m.you.packs.flatMap((p) => (p.cards ?? []).map((c) => c.id)));
+      if (COMBOS.some((k) => k.parts.every((alts) => alts.some((id) => ids.has(id))))) withChance++;
+    }
+    expect(withChance).toBe(60);
+  });
+});
+
 describe('stakes', () => {
   it('offers five stakes per versus mode, series higher', () => {
     expect(STAKE_OPTIONS.series).toHaveLength(5);
@@ -152,6 +192,9 @@ describe('match', () => {
       const expected = fate.playerWins ? 'you' : 'bot';
       expect(m.result!.winner, `seed ${seed}: you ${m.result!.youScore} bot ${m.result!.botScore} fate ${JSON.stringify(fate)}`).toBe(expected);
       marginErr += Math.abs(m.result!.margin - fate.margin);
+      const sd = showdown(m.you, m.bot);
+      expect(m.result!.youScore).toBe(sd.you.total);
+      expect(m.result!.botScore).toBe(sd.bot!.total);
       n++;
       const g = settleRound(game, m.result!);
       expect(g.history.length).toBe(1);

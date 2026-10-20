@@ -1028,7 +1028,7 @@ p {
   display: flex;
   justify-content: center;
   align-items: flex-end;
-  padding: 26px 0 10px;
+  padding: 26px 0 34px; /* room below for combo / home tags */
   perspective: 1200px;
   --fw: clamp(70px, min(15.5vw, 15vh), 136px);
   --ov: calc(var(--fw) * -0.14);
@@ -2213,11 +2213,20 @@ p {
     outline-color: #fff;
   }
 }
-.combotag {
+.undertags {
   position: absolute;
   left: 50%;
   top: 100%;
-  transform: translate(-50%, 8px);
+  transform: translateX(-50%);
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  pointer-events: none;
+  z-index: 2;
+}
+.combotag {
   white-space: nowrap;
   font-family: var(--display);
   font-size: 11px;
@@ -2230,19 +2239,35 @@ p {
   border-radius: 999px;
   box-shadow: 0 0 14px rgba(61, 255, 176, 0.8);
   animation: comboTag 0.9s ease-in-out infinite;
-  pointer-events: none;
-  z-index: 2;
+}
+.combotag.home {
+  background: var(--gold);
+  color: #1a1204;
+  box-shadow: 0 0 14px rgba(255, 207, 74, 0.8);
 }
 .combotag b {
   font-weight: 800;
 }
+.hometag {
+  white-space: nowrap;
+  font-family: var(--display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--gold);
+  background: rgba(30, 22, 4, 0.8);
+  border: 1px solid rgba(255, 207, 74, 0.5);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
 @keyframes comboTag {
   0%,
   100% {
-    transform: translate(-50%, 8px) scale(1);
+    transform: scale(1);
   }
   50% {
-    transform: translate(-50%, 8px) scale(1.08);
+    transform: scale(1.08);
   }
 }
 .fanitem.holy .card {
@@ -2552,5 +2577,213 @@ p {
   * {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* ───────── showdown ───────── */
+.overlay.showdown {
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+  background: rgba(4, 4, 12, 0.86);
+}
+.sdpanel {
+  --mw: clamp(30px, calc((min(100vw, 860px) - 220px) / 9), 58px);
+  width: 100%;
+  max-width: 860px;
+  padding: 10px 12px;
+  border-radius: 18px;
+  background: rgba(20, 18, 44, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: box-shadow 0.4s, border-color 0.4s;
+}
+.sdpanel.turf {
+  border-color: var(--gold);
+  box-shadow: 0 0 34px -8px var(--gold);
+}
+.sdpanel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.sdpanel header .nm {
+  font-family: var(--display);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.sdbody {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.sdhome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 96px;
+  opacity: 0.25;
+  transform: scale(0.92);
+  transition: opacity 0.4s, transform 0.4s;
+}
+.sdhome.shown {
+  opacity: 1;
+  transform: scale(1);
+}
+.sdhome .card.sm {
+  --w: 74px;
+}
+.sdhome .power {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.sdhome .power .lbl {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.sdhome .themes {
+  font-size: 10px;
+  color: var(--gold);
+  text-align: center;
+  max-width: 120px;
+}
+.sdhome .nohome {
+  font-size: 12px;
+  color: var(--muted);
+}
+.sdcards {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  justify-content: center;
+}
+.sdcell {
+  position: relative;
+  width: var(--mw);
+  aspect-ratio: 5 / 7;
+  transition: transform 0.3s;
+}
+.sdcell .card.mini {
+  --w: var(--mw);
+}
+.sdcell.lit {
+  transform: translateY(-4px);
+}
+.sdcell.lit .card {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+  border-radius: calc(var(--mw) * 0.1);
+  box-shadow: 0 0 18px rgba(255, 207, 74, 0.7);
+}
+.sdtag {
+  position: absolute;
+  left: 50%;
+  bottom: 22%;
+  transform: translateX(-50%);
+  max-width: 130%;
+  text-align: center;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 11px;
+  line-height: 1.15;
+  color: var(--gold);
+  background: rgba(18, 12, 2, 0.9);
+  border: 1px solid rgba(255, 207, 74, 0.6);
+  border-radius: 8px;
+  padding: 2px 5px;
+  text-shadow: 0 0 8px rgba(255, 207, 74, 0.6);
+  animation: fadeIn 0.3s ease both;
+  z-index: 2;
+}
+.sdpanel header .running .scoredelta {
+  left: auto;
+  right: 100%;
+  margin-left: 0;
+  margin-right: 10px;
+}
+.sdhome .running .num {
+  font-family: var(--display);
+}
+.sdcombos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.sdbanner {
+  text-align: center;
+  animation: fadeIn 0.35s ease both;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.sdbanner h2 {
+  font-size: clamp(22px, 4vw, 36px);
+}
+.sdbanner p {
+  color: var(--muted);
+  max-width: 460px;
+  font-size: 14px;
+}
+.running {
+  position: relative;
+  display: inline-flex;
+  align-items: baseline;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 18px;
+}
+.running.big {
+  font-size: 26px;
+}
+.sdsummary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+@media (max-width: 640px) {
+  .sdpanel {
+    --mw: clamp(28px, calc((100vw - 150px) / 5.4), 50px);
+  }
+  .sdhome {
+    min-width: 76px;
+  }
+  .sdhome .card.sm {
+    --w: 60px;
+  }
+}
+
+/* the opener's own controls always sit above the board panels around it */
+.overlay.opening .inner {
+  position: relative;
+  z-index: 2;
+}
+.overlay.opening .miniboard {
+  position: relative;
+  z-index: 1;
+}
+@media (max-width: 640px) {
+  .overlay.opening .tierlegend {
+    display: none;
+  }
+  .overlay.opening .detail.blurbbox p {
+    font-size: 13px;
+  }
+  .overlay.opening .ctarow.wide {
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+  .overlay.opening .ctarow.wide .switch span {
+    font-size: 14px;
   }
 }

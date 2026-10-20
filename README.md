@@ -35,8 +35,30 @@ The match *is* the draft. You and the opponent each hold the same loadout of pac
 resolve whatever that card does, then the opponent does the same. Picks land face up on both boards,
 so the duel is readable from the first pack; the only way to hide a card is Area 51. The opponent keeps
 its last pack sealed until you are done, so the final reveal is always theirs. When the packs are gone
-any empty slot is filled with a random common of its category (not in Solitaire, where empty slots score nothing), the ??? box resolves, and the higher
-set value wins (slot ratings + active combos).
+any empty slot is filled with a random common of its category (not in Solitaire, where empty slots score
+nothing), the ??? box resolves, and the showdown decides the final totals.
+
+**Slots.** The newest card always takes a slot. When every slot that takes it is full, it replaces the
+weakest older card there (preferring one of its own kind: a new idea replaces the old idea), so you can
+always grab the card that completes a combo.
+
+**The showdown.** After the last pick, each side's best slotted place becomes its *home place*, and an
+animation scores, with the totals running up:
+
+- **Home turf (+30).** Home power is the place's rating plus 6 for every event in the set, 12 when the
+  event fits the place. The stronger home takes the bonus.
+- **Home ties (+5 each).** Every life, stuff or event card that shares a theme with the home place.
+  Places have two or three themes (the sea, money, the party, crime, power, the afterlife, suburbia...),
+  shown on the board and in the card index.
+- **Home combos.** 32 combos that only count when their place is your home (Las Vegas plus an open mic
+  night or a flash mob, the Oval Office plus a military coup, and so on).
+
+During the draft the running totals are slot ratings plus combos. The pack opener marks cards that fit
+your current home, and cards that would complete a combo or a home combo.
+
+**Combos.** 120 regular combos plus the 32 home combos; every idea card has at least one partner. Each
+game plants the parts of a few combos across your packs (one with an idea card, one home combo), so
+every draft offers real chances.
 
 Cards have **abilities**, not score modifiers. They fire the moment a card is taken, and a card that
 changes hands fires again for its new owner. Flamethrower burns an opponent card, Rapture removes
@@ -65,13 +87,15 @@ combos among the selected cards, the full combo list and the minigame rules. Sou
 ```
 src/data/cards.ts      every card: category, rating, blurb, ability id (generated; tier derived from rating + ability worth)
 src/data/abilities.ts  ability names, timing and what each is worth to the tiering
-src/data/combos.ts     card combos, bonuses and the special slots they unlock
+src/data/combos.ts     card combos (regular and home), bonuses and the special slots they unlock
+src/data/places.ts     place themes, card themes and the showdown numbers
 src/data/minigames.ts  minigame triggers, odds and flavour
 src/data/art.ts        card id → layered illustration (Game Icons via react-icons + custom SVG paths; generated)
 src/engine/rng.ts      seeded PRNG so every match is reproducible
 src/engine/match.ts    the match state machine: packs, picks, abilities, prompts, minigames, end fills, scoring
+src/engine/finale.ts   the showdown: home place, home turf, home ties, home combos, final totals
 src/engine/bot.ts      the opponent: picks any catalog card, steering toward the fated result
-src/engine/deck.ts     slot rules and the auto-builder (best nine by rating, combo-driven slot unlocks)
+src/engine/deck.ts     slot rules: newest card wins its slot, combo-driven slot unlocks
 src/engine/game.ts     modes, fate generation, money settlement
 src/ui/Home.tsx        pack carousel, tap-anywhere, mode menu, wallet, sound, rules
 src/ui/Table.tsx       the whole match on one table: deal, packs on the horizon, slot grid, mirrored

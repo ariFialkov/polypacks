@@ -1,5 +1,7 @@
 import { CARDS, CARD_BY_ID, CATEGORY_META, GROUPS, MAIN_CATEGORIES, cardsOf } from '../data/cards';
+import { COMBOS } from '../data/combos';
 import { buildDeck, slotsFor, type Deck } from './deck';
+import { finalTotals, showdown, type Showdown } from './finale';
 import { Rng, hashString } from './rng';
 import type { CardDef, CardInst, Category, MainCategory, Rarity, Side } from './types';
 
@@ -192,6 +194,17 @@ export function deckOf(ss: SideState): Deck {
   return buildDeck(ss.cards, { unlocked: ss.flags.godMode ? 3 : 0 });
 }
 
+/** Final totals for the match as it stands (base + showdown). */
+export function matchTotals(s: MatchState): { you: number; bot: number } {
+  return finalTotals(s.you, s.solo ? null : s.bot);
+}
+
+/** The full showdown breakdown (for the end-of-match animation). */
+export function matchShowdown(s: MatchState): Showdown {
+  return showdown(s.you, s.solo ? null : s.bot);
+}
+
+/** Running total during the draft: slot ratings plus regular combos. */
 export function sideScore(ss: SideState): number {
   const deck = deckOf(ss);
   let total = 0;
@@ -286,8 +299,59 @@ export function createMatch(seed: number, loadout: Loadout, botName: string, sol
   };
   // the player's pack contents are fixed up front (baptized packs wait for a category)
   for (const p of s.you.packs) if (p.kind !== 'baptized') p.cards = generateCards(s, s.you, p);
+  plantCombos(s);
   refreshLocks(s.you);
   return s;
+}
+
+/**
+ * Seed a few real combo chances into the player's packs: the parts of up to three combos (one with an
+ * idea card, one any, one home combo) are spread across different packs, so every game offers some.
+ */
+function plantCombos(s: MatchState) {
+  const packs = s.you.packs.filter((p) => p.cards && p.cards.length && (p.kind === 'basic' || p.kind === 'enhanced' || p.kind === 'category'));
+  const want = Math.min(3, Math.floor(packs.length / 2));
+  if (want < 1) return;
+  const r = rng(s);
+  const planted = new Set<string>(); // `${packId}:${index}`
+  const inPacks = () => new Set(s.you.packs.flatMap((p) => (p.cards ?? []).map((c) => c.id)));
+  const fits = (pk: MPack, id: string) => !pk.category || CARD_BY_ID[id].cat === pk.category;
+  const pools = [
+    COMBOS.filter((k) => !k.home && k.parts.length <= packs.length && k.parts.some((alts) => alts.some((id) => CARD_BY_ID[id]?.cat === 'ideas'))),
+    COMBOS.filter((k) => !k.home && k.parts.length <= packs.length),
+    COMBOS.filter((k) => !!k.home),
+  ];
+  const tried = new Set<string>();
+  for (let n = 0; n < want; n++) {
+    const pool = pools[n].filter((k) => !tried.has(k.id));
+    if (!pool.length) continue;
+    const combo = r.pick(pool);
+    tried.add(combo.id);
+    const have = inPacks();
+    const ids = combo.parts.map((alts) => {
+      const fresh = alts.filter((id) => CARD_BY_ID[id] && !have.has(id));
+      return fresh.length ? r.pick(fresh) : null;
+    });
+    if (ids.some((id) => !id)) continue;
+    // one pack per part, never two parts in the same pack
+    const order = r.shuffle(packs.slice());
+    const usedPacks = new Set<string>();
+    const moves: { pk: MPack; i: number; id: string }[] = [];
+    for (const id of ids as string[]) {
+      const pk = order.find((p) => !usedPacks.has(p.id) && fits(p, id));
+      if (!pk) break;
+      const spots = pk.cards!.map((_c, i) => i).filter((i) => pk.cards![i].cat !== 'special' && !planted.has(`${pk.id}:${i}`));
+      if (!spots.length) break;
+      usedPacks.add(pk.id);
+      moves.push({ pk, i: r.pick(spots), id });
+    }
+    if (moves.length !== ids.length) continue;
+    for (const mv of moves) {
+      mv.pk.cards![mv.i] = CARD_BY_ID[mv.id];
+      planted.add(`${mv.pk.id}:${mv.i}`);
+    }
+  }
+  saveRng(s, r);
 }
 
 function generateCards(s: MatchState, ss: SideState, pack: MPack): CardDef[] {
@@ -1249,8 +1313,10 @@ function finish(s: MatchState) {
       flipCat(s, 'bot');
     }
   }
-  const youScore = sideScore(s.you);
-  const botScore = s.solo ? 0 : sideScore(s.bot);
+  // the showdown: home turf, home ties and home combos settle the final totals
+  const totals = matchTotals(s);
+  const youScore = totals.you;
+  const botScore = s.solo ? 0 : totals.bot;
   const winner: Side | 'tie' = s.solo ? 'you' : youScore > botScore ? 'you' : botScore > youScore ? 'bot' : 'tie';
   s.phase = 'done';
   s.result = { youScore, botScore, winner, margin: Math.abs(youScore - botScore) };

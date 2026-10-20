@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { CARDS, CARD_BY_ID, CATEGORY_META, TIER_META, tierScore } from '../data/cards';
 import { CARD_ART_NAMES } from '../data/art';
 import { COMBOS, comboHints, findCombos } from '../data/combos';
+import { EVENT_RALLY, EVENT_RALLY_MATCH, HOME_BONUS, HOME_TIE, THEME_LABEL, themesOf } from '../data/places';
 import type { CardDef, Category, Rarity } from '../engine/types';
 import { Card } from '../ui/Card';
 import { ABILITIES } from '../data/abilities';
@@ -141,6 +142,7 @@ export function CardIndex() {
                   <dt>category</dt><dd>{CATEGORY_META[c.cat].label}</dd>
                   <dt>rating</dt><dd>{c.rating} <span className="sub">(tier score {tierScore(c)})</span></dd>
                   {extraText(c) && (<><dt>ability</dt><dd>{extraText(c)}</dd></>)}
+                  {themesOf(c.id).length > 0 && (<><dt>{c.cat === 'places' ? 'home themes' : 'fits'}</dt><dd>{themesOf(c.id).map((t) => THEME_LABEL[t]).join(', ')}</dd></>)}
                   <dt>blurb</dt><dd>{c.blurb}</dd>
                   <dt>art</dt><dd><code>{art?.main}</code> · scene <code>{art?.scene}</code></dd>
                 </dl>
@@ -154,6 +156,11 @@ export function CardIndex() {
 
       <section className="ix-combos" id="combos">
         <h2>Combos ({COMBOS.length})</h2>
+        <p className="sub">
+          Home combos (marked home) only count when their place is your home place: your best slotted place. After the last pick, the showdown scores home
+          turf (+{HOME_BONUS} to the stronger home; home power is the place rating plus {EVENT_RALLY} per event in the set, {EVENT_RALLY + EVENT_RALLY_MATCH} if the
+          event fits the place), home ties (+{HOME_TIE} for each life, stuff or event card that fits the home place) and home combos.
+        </p>
         <div className="combo-list">
           {COMBOS.map((combo) => {
             const complete = combo.parts.every((alts) => alts.some((id) => selected.includes(id)));
@@ -161,6 +168,7 @@ export function CardIndex() {
               <div key={combo.id} className={`combo-row ${complete ? 'complete' : ''}`}>
                 <div className="combo-name">
                   <b>{combo.name}</b> <span className="bonus">+{combo.bonus}</span>
+                  {combo.home ? <span className="unlock">home</span> : null}
                   {combo.unlock ? <span className="unlock">unlocks {combo.unlock} special slot{combo.unlock > 1 ? 's' : ''}</span> : null}
                 </div>
                 <div className="combo-parts">

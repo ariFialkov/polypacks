@@ -1,15 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import { CARD_BY_ID, CATEGORY_META, MAIN_CATEGORIES, TIER_META } from '../data/cards';
 import { ABILITIES } from '../data/abilities';
-import { COMBO_BY_ID, comboHints, findCombos } from '../data/combos';
+import { COMBO_BY_ID, comboHints } from '../data/combos';
 import { MINIGAME_BY_ID } from '../data/minigames';
 import { BOT_AVATARS } from '../data/art';
-import { PACK_INFO, PACK_PRICES, activeCombos, deckOf, sideScore, unopened, type MPack, type MatchState, type MinigameOutcome, type Prompt, type SideState } from '../engine/match';
+import { PACK_INFO, PACK_PRICES, activeCombos, deckOf, matchShowdown, matchTotals, sideScore, unopened, type MPack, type MatchState, type MinigameOutcome, type Prompt, type SideState } from '../engine/match';
 import type { DeckSlot } from '../engine/deck';
 import { MODE_INFO, seriesPrize } from '../engine/game';
 import { hashString } from '../engine/rng';
 import type { CardDef, CardInst, MainCategory, Side } from '../engine/types';
 import { Card } from './Card';
+import { ShowdownOverlay } from './Showdown';
+import { sideShowdown } from '../engine/finale';
+import { HOME_TIE, PLACE_THEMES, THEME_LABEL } from '../data/places';
 import { Wallet } from './Home';
 import { Art, CatIcon, Ui } from './Icon';
 import { PackArt, PackTile } from './PackTile';
@@ -60,7 +63,7 @@ export function Table({ s }: { s: Snapshot }) {
             </div>
             {game.mode === 'margin' && <div className="bank">${game.bot.money}</div>}
             <ComboChips side={m.bot} />
-            <ScoreBadge key={m.seed} value={sideScore(m.bot)} turn={m.turn === 'bot' && m.phase === 'draft'} />
+            <ScoreBadge key={m.seed} value={m.phase === 'done' && !s.showdown ? matchTotals(m).bot : sideScore(m.bot)} turn={m.turn === 'bot' && m.phase === 'draft'} />
           </header>
           <div className="rows mirrored">
             <SlotRow ids={ROW2} deck={botDeck} side={m.bot} m={m} fresh={s.freshUids} />
@@ -119,7 +122,7 @@ export function Table({ s }: { s: Snapshot }) {
           </div>
           <div className="who">
             <div className="nm">You</div>
-            <div className="st">{hintText(m.you)}</div>
+            <div className="st">{homeText(m.you) ?? hintText(m.you)}</div>
           </div>
           {youDeck.bench.length > 0 && (
             <div className="bench" title="Bench">
@@ -130,7 +133,7 @@ export function Table({ s }: { s: Snapshot }) {
           )}
           {game.mode === 'margin' && <div className="bank">${game.you.money}</div>}
           <ComboChips side={m.you} />
-          <ScoreBadge key={m.seed} value={sideScore(m.you)} turn={yourTurn} label="set" />
+          <ScoreBadge key={m.seed} value={m.phase === 'done' && !s.showdown ? matchTotals(m).you : sideScore(m.you)} turn={yourTurn} label="set" />
         </header>
       </section>
 
@@ -138,6 +141,7 @@ export function Table({ s }: { s: Snapshot }) {
       {s.specialFx && <SpecialFx def={s.specialFx} />}
       {prompt && prompt.kind !== 'peek' && !s.opening && <PromptOverlay prompt={prompt} m={m} />}
       {s.minigameShow && <MinigameOverlay mg={s.minigameShow} m={m} />}
+      {s.showdown && m.phase === 'done' && !s.minigameShow && <ShowdownOverlay m={m} />}
       {(game.phase === 'roundResult' || game.phase === 'gameOver') && <ResultOverlay s={s} />}
     </div>
   );
@@ -165,6 +169,13 @@ function Hud({ s }: { s: Snapshot }) {
       <Wallet amount={s.wallet} />
     </div>
   );
+}
+
+/** "Home: Las Vegas (the party, money, crime)" for the side's current home place. */
+function homeText(ss: SideState): string | null {
+  const home = sideShowdown(ss).home;
+  if (!home) return null;
+  return `Home: ${home.def.name} (${(PLACE_THEMES[home.def.id] ?? []).map((t) => THEME_LABEL[t]).join(', ')})`;
 }
 
 function hintText(ss: SideState): string {
@@ -237,7 +248,7 @@ function MiniBoard({ side, name, you }: { side: SideState; name: string; you?: b
     <section className={`miniboard ${you ? 'you' : 'bot'}`} onClick={(e) => e.stopPropagation()}>
       <header>
         <span className="nm">{name}</span>
-        <span className="st">{you ? hintText(side) : `${unopened(side).length} packs left`}</span>
+        <span className="st">{you ? [homeText(side), hintText(side)].filter(Boolean).join(' · ') : [homeText(side), `${unopened(side).length} packs left`].filter(Boolean).join(' · ')}</span>
         <ComboChips side={side} />
         <ScoreBadge value={sideScore(side)} turn={false} label={you ? 'set' : undefined} />
       </header>
@@ -280,16 +291,17 @@ function Ashes({ side }: { side: SideState }) {
 function SlotRow({ ids, deck, side, m, fresh, you, yourTurn, special }: { ids: string[]; deck: ReturnType<typeof deckOf>; side: SideState; m: MatchState; fresh: string[]; you?: boolean; yourTurn?: boolean; special?: boolean }) {
   const slots = deck.slots.filter((x) => ids.includes(x.slot.id));
   if (!slots.length) return null;
+  const homeUid = slots.some((x) => x.card?.def.cat === 'places') ? sideShowdown(side).home?.uid : undefined;
   return (
     <div className={`slotrow ${special ? 'r3' : ids === ROW1 ? 'r1' : 'r2'}`}>
       {slots.map((slot, i) => (
-        <Slot key={slot.slot.id} slot={slot} i={i} side={side} m={m} fresh={fresh} you={!!you} yourTurn={!!yourTurn} />
+        <Slot key={slot.slot.id} slot={slot} i={i} side={side} m={m} fresh={fresh} you={!!you} yourTurn={!!yourTurn} homeUid={homeUid} />
       ))}
     </div>
   );
 }
 
-function Slot({ slot, i, side, m, fresh, you, yourTurn }: { slot: DeckSlot; i: number; side: SideState; m: MatchState; fresh: string[]; you: boolean; yourTurn: boolean }) {
+function Slot({ slot, i, side, m, fresh, you, yourTurn, homeUid }: { slot: DeckSlot; i: number; side: SideState; m: MatchState; fresh: string[]; you: boolean; yourTurn: boolean; homeUid?: string }) {
   const id = slot.slot.id;
   const card = slot.card;
   let content: React.ReactNode;
@@ -303,7 +315,7 @@ function Slot({ slot, i, side, m, fresh, you, yourTurn }: { slot: DeckSlot; i: n
         <Card
           def={card.def}
           flags={{ fresh: fresh.includes(card.uid), flipped: fresh.includes(card.uid) }}
-          badge={isCatTop ? (you && yourTurn ? 'tap to flip' : 'in the box') : protectedCard ? 'classified' : card.def.ability ? ABILITIES[card.def.ability].name : undefined}
+          badge={isCatTop ? (you && yourTurn ? 'tap to flip' : 'in the box') : protectedCard ? 'classified' : card.uid === homeUid ? 'home' : card.def.ability ? ABILITIES[card.def.ability].name : undefined}
           onClick={you && isCatTop && yourTurn ? () => controller.flipCat() : undefined}
           className={protectedCard ? 'protected' : ''}
         />
@@ -375,13 +387,22 @@ function Opening({ s, m }: { s: Snapshot; m: MatchState }) {
     if (Date.now() - (revealedAt[c.id] ?? 0) < 450) return;
     controller.pickCard(c.id);
   };
-  // a card that would complete a combo with what you already hold gets a flashing outline and the payoff
-  const held = m.you.cards.map((x) => x.def.id);
-  const already = new Set(findCombos(held).map((x) => x.id));
-  const comboFor = (c: CardDef) =>
-    findCombos([...held, c.id])
-      .filter((x) => !already.has(x.id) && !m.you.cancelledCombos.includes(x.id))
+  // a card that would complete a combo in your set (or a home combo for your home place) gets a flashing
+  // outline and the payoff; a card that fits your home place is marked as a home tie
+  const trial = (c: CardDef) => ({ ...m.you, cards: [...m.you.cards, { uid: 'preview', def: c }] });
+  const combosBefore = new Set(deckOf(m.you).combos.map((x) => x.id));
+  const homeBefore = sideShowdown(m.you);
+  const extrasFor = (c: CardDef) => {
+    if (c.cat === 'special') return { combo: undefined, homeCombo: undefined, homeTie: false };
+    const t = trial(c);
+    const combo = deckOf(t)
+      .combos.filter((x) => !combosBefore.has(x.id) && !m.you.cancelledCombos.includes(x.id))
       .sort((a, b) => b.bonus - a.bonus)[0];
+    const after = sideShowdown(t);
+    const homeCombo = after.homeCombos.find((x) => !homeBefore.homeCombos.some((b) => b.id === x.id));
+    const homeTie = after.ties.some((x) => x.uid === 'preview');
+    return { combo, homeCombo, homeTie };
+  };
   // what each card would add to your set right now (best nine + combos)
   const base = sideScore(m.you);
   const gainOf = (c: CardDef) => (c.cat === 'special' ? null : sideScore({ ...m.you, cards: [...m.you.cards, { uid: 'preview', def: c }] }) - base);
@@ -423,19 +444,30 @@ function Opening({ s, m }: { s: Snapshot; m: MatchState }) {
             <div className={`fan n${n}`}>
               {o.cards.map((c, i) => {
                 const revealed = o.revealed.includes(c.id);
-                const combo = revealed ? comboFor(c) : undefined;
+                const extras = revealed ? extrasFor(c) : { combo: undefined, homeCombo: undefined, homeTie: false };
+                const combo = extras.combo;
                 const gain = revealed && o.mode === 'open' ? gainOf(c) : null;
                 const mid = (n - 1) / 2;
                 const rot = (i - mid) * (n > 4 ? 7 : 11);
                 const lift = Math.abs(i - mid) * 7;
                 return (
-                  <div key={c.id} className={`fanitem ${o.divine === c.id ? 'holy' : ''} ${combo ? 'combo' : ''}`} style={{ ['--rot' as string]: `${rot}deg`, ['--lift' as string]: `${lift}px`, ['--i' as string]: i }}>
+                  <div key={c.id} className={`fanitem ${o.divine === c.id ? 'holy' : ''} ${combo || extras.homeCombo ? 'combo' : ''}`} style={{ ['--rot' as string]: `${rot}deg`, ['--lift' as string]: `${lift}px`, ['--i' as string]: i }}>
                     <Card def={c} back={!revealed} backCat={c.cat} backRarity={c.rarity} selected={o.firstPick === c.id} flags={{ flipped: revealed }} onClick={o.mode === 'open' ? () => tap(c, revealed) : undefined} badge={revealed && c.ability ? ABILITIES[c.ability].name : undefined} />
                     {gain !== null && <span className={`gaintag ${gain > 0 ? 'up' : gain < 0 ? 'down' : 'flat'}`}>{gain > 0 ? `+${gain}` : gain < 0 ? `−${-gain}` : '+0'}</span>}
-                    {combo && (
-                      <span className="combotag">
-                        {combo.name} <b>+{combo.bonus}</b>
-                      </span>
+                    {(combo || extras.homeCombo || extras.homeTie) && (
+                      <div className="undertags">
+                        {combo && (
+                          <span className="combotag">
+                            {combo.name} <b>+{combo.bonus}</b>
+                          </span>
+                        )}
+                        {extras.homeCombo && (
+                          <span className="combotag home">
+                            Home: {extras.homeCombo.name} <b>+{extras.homeCombo.bonus}</b>
+                          </span>
+                        )}
+                        {extras.homeTie && <span className="hometag">fits home +{HOME_TIE}</span>}
+                      </div>
                     )}
                   </div>
                 );
@@ -757,6 +789,7 @@ function ResultOverlay({ s }: { s: Snapshot }) {
           <span className="eyebrow">Solitaire</span>
           <div className={`headline ${profit >= 0 ? 'win' : 'lose'}`}>{profit >= 0 ? `+$${profit}` : `−$${-profit}`}</div>
           <p className="sub">Set value ${game.you.money} · spent ${game.spent} · best {best >= 0 ? `+$${best}` : `−$${-best}`}</p>
+          {m && m.phase === 'done' && <ShowdownSummary m={m} />}
           {deck && <SetStrip cards={deck.slots.map((x) => x.card).filter((c): c is CardInst => !!c)} />}
           <div className="ctarow">
             <button className="btn" onClick={() => controller.home()}>Home</button>
@@ -781,6 +814,7 @@ function ResultOverlay({ s }: { s: Snapshot }) {
             <div><div className="n money">${last.botScore}</div><div className="who">{game.bot.name}</div></div>
           </div>
         )}
+        {m && m.phase === 'done' && <ShowdownSummary m={m} />}
         {game.mode === 'margin' && (
           <div className="row spread panel">
             <div><div className="eyebrow">Your bankroll</div><div className="bigstat money" style={{ color: last && last.moneyDelta >= 0 ? 'var(--good)' : 'var(--bad)' }}>${game.you.money}</div>{last && <div className="sub">{last.moneyDelta >= 0 ? `+$${last.moneyDelta}` : `−$${-last.moneyDelta}`} this round</div>}</div>
@@ -806,6 +840,26 @@ function ResultOverlay({ s }: { s: Snapshot }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/** One line per side: what the showdown added on top of the set. */
+function ShowdownSummary({ m }: { m: MatchState }) {
+  const sd = matchShowdown(m);
+  const line = (x: typeof sd.you, name: string) => {
+    const parts: string[] = [];
+    if (x.home) parts.push(`home ${x.home.def.name}`);
+    if (x.homeBonus) parts.push(`home turf +${x.homeBonus}`);
+    const ties = x.ties.reduce((t, l) => t + l.n, 0);
+    if (ties) parts.push(`${x.ties.length} home ties +${ties}`);
+    for (const k of x.homeCombos) parts.push(`${k.name} +${k.bonus}`);
+    return parts.length ? `${name}: ${parts.join(' · ')}` : `${name}: no home place`;
+  };
+  return (
+    <div className="sdsummary">
+      <span>{line(sd.you, 'You')}</span>
+      {sd.bot && <span>{line(sd.bot, m.bot.name)}</span>}
     </div>
   );
 }

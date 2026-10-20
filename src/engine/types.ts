@@ -55,6 +55,8 @@ export interface Combo {
   bonus: number;
   unlock?: number; // number of special slots this combo unlocks
   blurb?: string;
+  /** a home combo: only counts when this place is the side's home place (scored in the showdown) */
+  home?: string;
 }
 
 export type Side = 'you' | 'bot';
