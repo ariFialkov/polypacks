@@ -17,11 +17,14 @@ export default function App() {
       </div>
       {s.game ? <Table s={s} /> : <Home s={s} />}
       <CardInfoLayer />
-      <div className="toasts">
-        {s.toasts.map((t) => (
-          <div key={t.id} className={`toast ${t.tone ?? ''}`}>{t.text}</div>
-        ))}
-      </div>
+      {/* in a match, notices run in the table's centre lane instead */}
+      {!s.game && (
+        <div className="toasts">
+          {s.toasts.map((t) => (
+            <div key={t.id} className={`toast ${t.tone ?? ''}`}>{t.text}</div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -52,10 +52,31 @@ export function Table({ s }: { s: Snapshot }) {
   if (!pb && s.comboFlash) for (const u of s.comboFlash.uids) marks[u] = { kind: 'combo' };
   if (!pb && s.abilityShow) marks[s.abilityShow.uid] = { kind: 'ability' };
   const pop: ComboFlash | null = pb ? pb.pop : s.comboFlash;
+  const lastToast = s.toasts.length ? s.toasts[s.toasts.length - 1] : null;
+  // a peek or a tool in hand: the centre lane says which ability and what to do
+  const laneHead =
+    s.abilityShow || s.opening ? null : prompt?.kind === 'peek' ? (
+      <AbilityHead m={m} from={m.promptFrom ?? { card: prompt.source === 'dejavu' ? 'deja-vu' : 'premonition', side: 'you' }} what="Tap a glowing sealed pack to look inside. It stays sealed; you take nothing." lane />
+    ) : !prompt && s.tool ? (
+      <AbilityHead
+        m={m}
+        from={{ card: s.tool === 'delorean' ? 'delorean' : 'premonition', side: 'you' }}
+        what={s.tool === 'delorean' ? 'Tap a glowing picked pack to reopen it and choose again.' : 'Tap a glowing sealed pack to look inside. It stays sealed.'}
+        lane
+        onCancel={() => controller.setTool(s.tool)}
+      />
+    ) : null;
   const scoreOf = (w: Side) => (pb ? pb.totals[w] : m.phase === 'done' && !s.showdown ? matchTotals(m)[w] : sideScore(w === 'you' ? m.you : m.bot));
 
+  // card size follows what is on the table: slot rows (portrait) and cards per line (landscape)
+  const hasSpecial = (d: ReturnType<typeof deckOf> | null) => !!d && d.slots.some((x) => SPECIAL_IDS.includes(x.slot.id));
+  const youRows = 2 + (hasSpecial(youDeck) ? 1 : 0);
+  const botRows = solo ? 1 : 2 + (hasSpecial(botDeck) ? 1 : 0);
+  const cols = Math.max(9 + (hasSpecial(youDeck) ? 3 : 0), solo ? 0 : 9 + (hasSpecial(botDeck) ? 3 : 0));
+  const tableVars = { ['--rows' as string]: youRows + botRows, ['--cols' as string]: cols };
+  const horizonVars = (ss: SideState) => ({ ['--np' as string]: ss.packs.length, ['--ash' as string]: ss.graveyard.some((c) => c.uid !== ss.catPair?.underUid) ? 1 : 0 });
   return (
-    <div className={`table ${solo ? 'solo' : 'versus'} ${s.dealing ? 'dealing' : ''} phase-${m.phase} ${yourTurn ? 'your-turn' : ''}`}>
+    <div className={`table ${solo ? 'solo' : 'versus'} ${s.dealing ? 'dealing' : ''} phase-${m.phase} ${yourTurn ? 'your-turn' : ''}`} style={tableVars}>
       <Hud s={s} />
 
       {!solo && botDeck && (
@@ -64,21 +85,24 @@ export function Table({ s }: { s: Snapshot }) {
             <div className="avatar">
               <BotAvatar />
             </div>
-            <div className="who">
-              <div className="nm">{game.bot.name}</div>
-              <div className="st">{s.botBusy ? s.botStatus : m.phase === 'draft' ? `${unopened(m.bot).length} packs left · ${s.botStatus}` : 'done'}</div>
-            </div>
+            {pop?.side === 'bot' ? (
+              <ComboPop pop={pop} />
+            ) : (
+              <div className="who">
+                <div className="nm">{game.bot.name}</div>
+                <div className="st">{s.botBusy ? s.botStatus : m.phase === 'draft' ? `${unopened(m.bot).length} packs left · ${s.botStatus}` : 'done'}</div>
+              </div>
+            )}
             {game.mode === 'margin' && <div className="bank">${game.bot.money}</div>}
-            <ComboChips side={m.bot} />
+            {pop?.side !== 'bot' && <ComboChips side={m.bot} />}
             <ScoreBadge key={m.seed} value={scoreOf('bot')} turn={m.turn === 'bot' && m.phase === 'draft'} />
-            {pop?.side === 'bot' && <ComboPop pop={pop} />}
           </header>
           <div className="rows mirrored">
             <SlotRow ids={ROW2} deck={botDeck} side={m.bot} m={m} fresh={s.freshUids} marks={marks} />
             {botDeck.slots.some((x) => SPECIAL_IDS.includes(x.slot.id)) && <SlotRow ids={SPECIAL_IDS} deck={botDeck} side={m.bot} m={m} fresh={s.freshUids} marks={marks} special />}
             <SlotRow ids={ROW1} deck={botDeck} side={m.bot} m={m} fresh={s.freshUids} marks={marks} />
           </div>
-          <div className="horizonrow">
+          <div className="horizonrow" style={horizonVars(m.bot)}>
             <div className="packrow">
               {m.bot.packs.map((p, i) => (
                 <div key={p.id} className={`pack bot ${p.opened || p.destroyed ? 'gone' : 'idle'} ${p.destroyed ? 'destroyed' : ''} deal`} style={{ ['--i' as string]: i }}>
@@ -95,8 +119,15 @@ export function Table({ s }: { s: Snapshot }) {
         <div className="line" />
         <div className="center">
           {s.dealing && <span className="ticker">Dealing…</span>}
-          {!s.dealing && m.phase === 'draft' && <TurnBar s={s} m={m} yourTurn={yourTurn} prompt={prompt} youLeft={youLeft} />}
-          {m.phase !== 'draft' && m.result && (
+          {!s.dealing && lastToast && !pb && (
+            <span className={`ticker toastline ${lastToast.tone ?? ''}`} key={lastToast.id}>
+              {lastToast.text}
+            </span>
+          )}
+          {!s.dealing && !lastToast && m.phase === 'draft' && laneHead}
+          {!s.dealing && !lastToast && m.phase === 'draft' && !laneHead && <TurnBar s={s} m={m} yourTurn={yourTurn} prompt={prompt} youLeft={youLeft} />}
+          {pb?.skip}
+          {!pb && !lastToast && m.phase !== 'draft' && m.result && (
             <span className="ticker">
               <b>{solo ? `Set value $${m.result.youScore}` : m.result.winner === 'you' ? 'You take it.' : m.result.winner === 'bot' ? `${game.bot.name} takes it.` : 'Dead heat.'}</b>
             </span>
@@ -105,7 +136,7 @@ export function Table({ s }: { s: Snapshot }) {
       </div>
 
       <section className="board you">
-        <div className="horizonrow">
+        <div className="horizonrow" style={horizonVars(m.you)}>
           <div className="packrow">
             {m.you.packs.map((p, i) => (
               <PackTile
@@ -128,10 +159,14 @@ export function Table({ s }: { s: Snapshot }) {
           <div className="avatar you">
             <Ui name="you" />
           </div>
-          <div className="who">
-            <div className="nm">You</div>
-            <div className="st">{homeText(m.you) ?? hintText(m.you)}</div>
-          </div>
+          {pop?.side === 'you' ? (
+            <ComboPop pop={pop} />
+          ) : (
+            <div className="who">
+              <div className="nm">You</div>
+              <div className="st">{homeText(m.you) ?? hintText(m.you)}</div>
+            </div>
+          )}
           {youDeck.bench.length > 0 && (
             <div className="bench" title="Bench">
               {youDeck.bench.map((c) => (
@@ -140,9 +175,8 @@ export function Table({ s }: { s: Snapshot }) {
             </div>
           )}
           {game.mode === 'margin' && <div className="bank">${game.you.money}</div>}
-          <ComboChips side={m.you} />
+          {pop?.side !== 'you' && <ComboChips side={m.you} />}
           <ScoreBadge key={m.seed} value={scoreOf('you')} turn={yourTurn} label="set" />
-          {pop?.side === 'you' && <ComboPop pop={pop} />}
         </header>
       </section>
 
@@ -150,8 +184,6 @@ export function Table({ s }: { s: Snapshot }) {
       {s.specialFx && <SpecialFx def={s.specialFx} />}
       {prompt && prompt.kind !== 'peek' && !s.opening && !s.abilityShow && <PromptOverlay prompt={prompt} m={m} />}
       {s.abilityShow && <AbilityBanner show={s.abilityShow} m={m} />}
-      {!s.abilityShow && !s.opening && prompt?.kind === 'peek' && <AbilityHead m={m} from={m.promptFrom ?? { card: prompt.source === 'dejavu' ? 'deja-vu' : 'premonition', side: 'you' }} what="Tap one of your glowing sealed packs to look inside. It stays sealed and you take nothing." floating />}
-      {!s.abilityShow && !s.opening && !prompt && s.tool && <AbilityHead m={m} from={{ card: s.tool === 'delorean' ? 'delorean' : 'premonition', side: 'you' }} what={s.tool === 'delorean' ? 'Tap one of your glowing picked packs to reopen it and choose again.' : 'Tap one of your glowing sealed packs to look inside. It stays sealed.'} floating />}
       {s.minigameShow && <MinigameOverlay mg={s.minigameShow} m={m} />}
       {pb?.layer}
       {(game.phase === 'roundResult' || game.phase === 'gameOver') && <ResultOverlay s={s} />}
@@ -224,7 +256,7 @@ function ScoreBadge({ value, turn, label }: { value: number; turn: boolean; labe
       {label && <span className="lbl">{label}</span>}
       <span className="money">${value}</span>
       {d && (
-        <span key={d.k} className={`scoredelta ${d.n > 0 ? 'up' : 'down'}`}>
+        <span key={d.k} className={`scoredelta inline ${d.n > 0 ? 'up' : 'down'}`}>
           {d.n > 0 ? '+' : '−'}
           {Math.abs(d.n)}
         </span>
@@ -257,7 +289,7 @@ function MiniBoard({ side, name, you }: { side: SideState; name: string; you?: b
     );
   };
   return (
-    <section className={`miniboard ${you ? 'you' : 'bot'}`} onClick={(e) => e.stopPropagation()}>
+    <section className={`miniboard ${you ? 'you' : 'bot'}`} onClick={(e) => e.stopPropagation()} style={{ ['--cells' as string]: ROW1.length + specials.length + ROW2.length, ['--rowcells' as string]: Math.max(ROW1.length + specials.length, ROW2.length) }}>
       <header>
         <span className="nm">{name}</span>
         <span className="st">{you ? [homeText(side), hintText(side)].filter(Boolean).join(' · ') : [homeText(side), `${unopened(side).length} packs left`].filter(Boolean).join(' · ')}</span>
@@ -275,7 +307,7 @@ function MiniBoard({ side, name, you }: { side: SideState; name: string; you?: b
 /** The score pop for a combo: its name and bonus, and the cards that made it. */
 function ComboPop({ pop }: { pop: ComboFlash }) {
   return (
-    <div className={`combopop ${pop.home ? 'home' : ''}`} key={pop.key}>
+    <div className={`combopop ${pop.home ? 'is-home' : ''}`} key={pop.key}>
       <b>
         {pop.name} +{pop.bonus}
       </b>
@@ -301,12 +333,15 @@ function ComboChips({ side }: { side: SideState }) {
 function Ashes({ side }: { side: SideState }) {
   const ashes = side.graveyard.filter((c) => c.uid !== side.catPair?.underUid);
   if (!ashes.length) return null;
+  // compact: the last two destroyed cards and a count for the rest
+  const shown = ashes.slice(-2);
   return (
-    <div className="ashes" title="Destroyed">
+    <div className="ashes" title={`Destroyed: ${ashes.map((c) => c.def.name).join(', ')}`}>
       <span className="lbl">gone</span>
-      {ashes.map((c) => (
+      {shown.map((c) => (
         <Card key={c.uid} def={c.def} className="tiny" dim />
       ))}
+      {ashes.length > shown.length && <span className="more">+{ashes.length - shown.length}</span>}
     </div>
   );
 }
@@ -477,23 +512,26 @@ function Opening({ s, m }: { s: Snapshot; m: MatchState }) {
                 const lift = Math.abs(i - mid) * 7;
                 return (
                   <div key={c.id} className={`fanitem ${o.divine === c.id ? 'holy' : ''} ${combo || extras.homeCombo ? 'combo' : ''}`} style={{ ['--rot' as string]: `${rot}deg`, ['--lift' as string]: `${lift}px`, ['--i' as string]: i }}>
-                    <Card def={c} back={!revealed} backCat={c.cat} backRarity={c.rarity} selected={o.firstPick === c.id} flags={{ flipped: revealed }} onClick={o.mode === 'open' ? () => tap(c, revealed) : undefined} badge={revealed && c.ability ? ABILITIES[c.ability].name : undefined} />
+                    <Card def={c} back={!revealed} backCat={c.cat} backRarity={c.rarity} selected={o.firstPick === c.id} flags={{ flipped: revealed }} onClick={o.mode === 'open' ? () => tap(c, revealed) : undefined} badge={revealed && c.ability ? ABILITIES[c.ability].name : undefined}
+                      overlay={
+                        combo || extras.homeCombo || extras.homeTie ? (
+                          <>
+                            {combo && (
+                              <span className="combotag">
+                                {combo.name} <b>+{combo.bonus}</b>
+                              </span>
+                            )}
+                            {extras.homeCombo && (
+                              <span className="combotag is-home">
+                                Home: {extras.homeCombo.name} <b>+{extras.homeCombo.bonus}</b>
+                              </span>
+                            )}
+                            {extras.homeTie && <span className="hometag">fits home +{HOME_TIE}</span>}
+                          </>
+                        ) : undefined
+                      }
+                    />
                     {gain !== null && <span className={`gaintag ${gain > 0 ? 'up' : gain < 0 ? 'down' : 'flat'}`}>{gain > 0 ? `+${gain}` : gain < 0 ? `−${-gain}` : '+0'}</span>}
-                    {(combo || extras.homeCombo || extras.homeTie) && (
-                      <div className="undertags">
-                        {combo && (
-                          <span className="combotag">
-                            {combo.name} <b>+{combo.bonus}</b>
-                          </span>
-                        )}
-                        {extras.homeCombo && (
-                          <span className="combotag home">
-                            Home: {extras.homeCombo.name} <b>+{extras.homeCombo.bonus}</b>
-                          </span>
-                        )}
-                        {extras.homeTie && <span className="hometag">fits home +{HOME_TIE}</span>}
-                      </div>
-                    )}
                   </div>
                 );
               })}
@@ -727,13 +765,13 @@ const PROMPT_HOWTO: Record<string, string> = {
 };
 
 /** A blinking header: which ability, from whose card, and what to do now. */
-function AbilityHead({ m, from, what, floating }: { m: MatchState; from: { card: string; side: Side }; what: string; floating?: boolean }) {
+function AbilityHead({ m, from, what, lane, onCancel }: { m: MatchState; from: { card: string; side: Side }; what: string; lane?: boolean; onCancel?: () => void }) {
   const def = CARD_BY_ID[from.card];
   const ab = def?.ability ? ABILITIES[def.ability] : null;
   if (!def) return null;
   const owner = from.side === 'you' ? 'your' : `${m.bot.name}'s`;
   return (
-    <div className={`abilityhead ${floating ? 'floating' : ''} ${from.side}`}>
+    <div className={`abilityhead ${lane ? 'lane' : ''} ${from.side}`}>
       <div className="line1">
         <span className="tag">ability</span>
         <b>{ab?.name ?? def.name}</b>
@@ -741,7 +779,14 @@ function AbilityHead({ m, from, what, floating }: { m: MatchState; from: { card:
           from {owner} {def.name}
         </span>
       </div>
-      <div className="line2">{what}</div>
+      <div className="line2">
+        {what}
+        {onCancel && (
+          <button className="linkbtn" onClick={onCancel}>
+            Cancel
+          </button>
+        )}
+      </div>
     </div>
   );
 }

@@ -18,13 +18,15 @@ interface Props {
   flags?: { halved?: boolean; doubled?: boolean; stolen?: boolean; fresh?: boolean; thinking?: boolean; flipped?: boolean; scene?: boolean };
   style?: React.CSSProperties;
   className?: string;
+  /** drawn on the card's face (same layer as the art, so nothing on the card can cover it) */
+  overlay?: React.ReactNode;
 }
 
 /**
  * A card. Rendered as a 3D flipper so the same element can show its back
  * (category symbol, tier glow) and flip to its face.
  */
-export function Card({ def, back, backCat, backRarity, onClick, selected, dim, value, badge, flags, style, className }: Props) {
+export function Card({ def, back, backCat, backRarity, onClick, selected, dim, value, badge, flags, style, className, overlay }: Props) {
   const cat = def?.cat ?? backCat ?? 'special';
   const meta = CATEGORY_META[cat];
   const rarity = (def?.rarity ?? backRarity ?? 1) as Rarity;
@@ -67,6 +69,7 @@ export function Card({ def, back, backCat, backRarity, onClick, selected, dim, v
             <div className="name">
               <span>{def.name}</span>
             </div>
+            {overlay && <div className="card-overlay">{overlay}</div>}
           </div>
         )}
       </div>

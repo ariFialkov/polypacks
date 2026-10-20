@@ -21,6 +21,8 @@ export interface Playback {
   marks: Record<string, Mark>;
   pop: ComboFlash | null;
   layer: ReactNode;
+  /** the Skip control, shown in the table's centre lane */
+  skip: ReactNode;
 }
 
 type Step =
@@ -128,12 +130,7 @@ export function useShowdownPlayback(m: MatchState | null, active: boolean): Play
       Skip
     </button>
   );
-  return { totals, marks, pop, layer: (
-    <>
-      {layer}
-      {skip}
-    </>
-  ) };
+  return { totals, marks, pop, layer, skip };
 }
 
 /** The home places lift out, clash, and the winner goes home. */
